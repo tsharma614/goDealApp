@@ -9,6 +9,10 @@ struct MainMenuView: View {
     @State private var isShowingCustomization = false
     @State private var gameViewModel = GameViewModel()
     @State private var customizationViewModel = CustomizationViewModel()
+    /// Holds the multiplayer session until the lobby sheet fully dismisses,
+    /// then triggers the fullScreenCover. iOS cannot present a fullScreenCover
+    /// while a sheet is mid-dismiss — this two-step approach avoids the conflict.
+    @State private var pendingMultiplayer: (session: MultipeerSession, localIdx: Int)? = nil
 
     var body: some View {
         NavigationStack {
@@ -72,17 +76,23 @@ struct MainMenuView: View {
             CustomizationMenuView()
                 .environment(customizationViewModel)
         }
-        .sheet(isPresented: $isShowingLobby) {
+        .sheet(isPresented: $isShowingLobby, onDismiss: {
+            // onDismiss fires after the sheet animation fully completes — safe to present
+            // a fullScreenCover here without conflicting with the dismissal animation.
+            guard let mp = pendingMultiplayer else { return }
+            pendingMultiplayer = nil
+            let setup = GameSetup()
+            if mp.session.role == .host {
+                gameViewModel = GameViewModel(setup: setup, session: mp.session, localPlayerIndex: mp.localIdx)
+            } else {
+                gameViewModel = GameViewModel(session: mp.session, localPlayerIndex: mp.localIdx)
+            }
+            isShowingGame = true
+        }) {
             LobbyView { session, localIdx in
-                // Lobby signals game start — build ViewModel and navigate to board
-                let setup = GameSetup()
-                if session.role == .host {
-                    gameViewModel = GameViewModel(setup: setup, session: session, localPlayerIndex: localIdx)
-                } else {
-                    gameViewModel = GameViewModel(session: session, localPlayerIndex: localIdx)
-                }
+                // Store session for onDismiss; closing the sheet triggers game creation.
+                pendingMultiplayer = (session, localIdx)
                 isShowingLobby = false
-                isShowingGame = true
             }
         }
     }
