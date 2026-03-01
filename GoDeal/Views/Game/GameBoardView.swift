@@ -6,6 +6,8 @@ import SwiftUI
 
 struct GameBoardView: View {
     @Environment(GameViewModel.self) private var viewModel
+    /// Called when the user taps the gear icon to return to the main menu.
+    var onExit: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedCardId: UUID? = nil
@@ -574,7 +576,7 @@ struct GameBoardView: View {
         HStack {
             // Gear / back-to-menu button — sits beside the logo
             Button {
-                dismiss()
+                if let onExit { onExit() } else { dismiss() }
             } label: {
                 Image(systemName: "gearshape.fill")
                     .font(.subheadline)

@@ -9,12 +9,19 @@ struct MainMenuView: View {
     @State private var isShowingCustomization = false
     @State private var gameViewModel = GameViewModel()
     @State private var customizationViewModel = CustomizationViewModel()
-    /// Holds the multiplayer session until the lobby sheet fully dismisses,
-    /// then triggers the fullScreenCover. iOS cannot present a fullScreenCover
-    /// while a sheet is mid-dismiss — this two-step approach avoids the conflict.
-    @State private var pendingMultiplayer: (session: MultipeerSession, localIdx: Int)? = nil
 
     var body: some View {
+        // Using if/else instead of fullScreenCover avoids iOS modal presentation
+        // ordering conflicts (can't present a cover while a sheet is dismissing).
+        if isShowingGame {
+            GameBoardView(onExit: { isShowingGame = false })
+                .environment(gameViewModel)
+        } else {
+            mainMenuStack
+        }
+    }
+
+    private var mainMenuStack: some View {
         NavigationStack {
             ZStack {
                 // Gradient background
@@ -61,10 +68,6 @@ struct MainMenuView: View {
                 }
             }
         }
-        .fullScreenCover(isPresented: $isShowingGame) {
-            GameBoardView()
-                .environment(gameViewModel)
-        }
         .sheet(isPresented: $isShowingSetup) {
             GameSetupView(onStart: { setup in
                 gameViewModel = GameViewModel(setup: setup)
@@ -76,22 +79,18 @@ struct MainMenuView: View {
             CustomizationMenuView()
                 .environment(customizationViewModel)
         }
-        .sheet(isPresented: $isShowingLobby, onDismiss: {
-            // onDismiss fires after the sheet animation fully completes — safe to present
-            // a fullScreenCover here without conflicting with the dismissal animation.
-            guard let mp = pendingMultiplayer else { return }
-            pendingMultiplayer = nil
-            let setup = GameSetup()
-            if mp.session.role == .host {
-                gameViewModel = GameViewModel(setup: setup, session: mp.session, localPlayerIndex: mp.localIdx)
-            } else {
-                gameViewModel = GameViewModel(session: mp.session, localPlayerIndex: mp.localIdx)
-            }
-            isShowingGame = true
-        }) {
+        .sheet(isPresented: $isShowingLobby) {
             LobbyView { session, localIdx in
-                // Store session for onDismiss; closing the sheet triggers game creation.
-                pendingMultiplayer = (session, localIdx)
+                // Build the right VM then show the game board.
+                // Since isShowingGame flips the entire root view (not a modal),
+                // there is no presentation conflict with the lobby sheet.
+                let setup = GameSetup()
+                if session.role == .host {
+                    gameViewModel = GameViewModel(setup: setup, session: session, localPlayerIndex: localIdx)
+                } else {
+                    gameViewModel = GameViewModel(session: session, localPlayerIndex: localIdx)
+                }
+                isShowingGame = true
                 isShowingLobby = false
             }
         }
