@@ -126,7 +126,10 @@ final class GameViewModel {
 
     /// Host creates the game after lobby is ready. All players are real humans; no CPUPlayer objects.
     init(setup: GameSetup, session: MultipeerSession, localPlayerIndex: Int = 0) {
-        let hostName = setup.humanPlayerName.trimmingCharacters(in: .whitespaces)
+        // Prefer setup name, fall back to whatever name the host typed in the lobby
+        // (stored as MCPeerID.displayName), then "You" as last resort.
+        let setupName = setup.humanPlayerName.trimmingCharacters(in: .whitespaces)
+        let hostName = !setupName.isEmpty ? setupName : session.myPeerID.displayName
         let guests = session.connectedPeers
 
         var players: [Player] = [Player(name: hostName.isEmpty ? "You" : hostName, isHuman: true)]
@@ -165,7 +168,7 @@ final class GameViewModel {
 
     /// Guest device: creates a minimal placeholder engine. Real state arrives via broadcasts.
     init(session: MultipeerSession, localPlayerIndex: Int) {
-        let placeholder = Player(name: "You", isHuman: true)
+        let placeholder = Player(name: session.myPeerID.displayName, isHuman: true)
         let emptyState = GameState(players: [placeholder], deck: [])
         let engine = GameEngine(state: emptyState)
         self.engine = engine

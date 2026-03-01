@@ -3,6 +3,7 @@ import SwiftUI
 // MARK: - Game Setup View
 
 struct GameSetupView: View {
+    @AppStorage("playerName") private var storedName: String = ""
     @State private var setup = GameSetup()
     let onStart: (GameSetup) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -12,6 +13,7 @@ struct GameSetupView: View {
             Form {
                 Section("Your Name") {
                     TextField("e.g. Tanmay", text: $setup.humanPlayerName)
+                        .onAppear { if setup.humanPlayerName.isEmpty { setup.humanPlayerName = storedName } }
                         .textInputAutocapitalization(.words)
                         .autocorrectionDisabled()
                 }
@@ -64,6 +66,8 @@ struct GameSetupView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Start Game") {
+                        let trimmed = setup.humanPlayerName.trimmingCharacters(in: .whitespaces)
+                        if !trimmed.isEmpty { storedName = trimmed }
                         onStart(setup)
                     }
                     .fontWeight(.semibold)

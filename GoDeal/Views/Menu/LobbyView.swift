@@ -6,13 +6,14 @@ import MultipeerConnectivity
 /// Entry point for multiplayer: user picks Host or Guest, then waits/browses.
 struct LobbyView: View {
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("playerName") private var storedName: String = ""
 
     /// Called when the session is ready and the game should start.
     /// Provides the configured session + the local player's index.
     var onStartGame: (MultipeerSession, Int) -> Void
 
     @State private var role: MCRole? = nil
-    @State private var displayName: String = UIDevice.current.name
+    @State private var displayName: String = ""
     @State private var session: MultipeerSession? = nil
     @State private var localPlayerIndex: Int = 0
 
@@ -49,14 +50,18 @@ struct LobbyView: View {
 
                 VStack(spacing: 14) {
                     roleButton(title: "Host a Game", icon: "person.badge.plus", color: .green) {
-                        let s = MultipeerSession(role: .host, displayName: displayName)
+                        let name = displayName.trimmingCharacters(in: .whitespaces)
+                        if !name.isEmpty { storedName = name }
+                        let s = MultipeerSession(role: .host, displayName: name.isEmpty ? UIDevice.current.name : name)
                         s.startAdvertising()
                         session = s
                         role = .host
-                        localPlayerIndex = 0   // host is always player 0
+                        localPlayerIndex = 0
                     }
                     roleButton(title: "Join a Game", icon: "magnifyingglass", color: .blue) {
-                        let s = MultipeerSession(role: .guest, displayName: displayName)
+                        let name = displayName.trimmingCharacters(in: .whitespaces)
+                        if !name.isEmpty { storedName = name }
+                        let s = MultipeerSession(role: .guest, displayName: name.isEmpty ? UIDevice.current.name : name)
                         s.startBrowsing()
                         session = s
                         role = .guest
@@ -69,6 +74,11 @@ struct LobbyView: View {
             }
         }
         .navigationBarHidden(true)
+        .onAppear {
+            if displayName.isEmpty {
+                displayName = storedName.isEmpty ? UIDevice.current.name : storedName
+            }
+        }
     }
 
     // MARK: - Lobby Screen (post-role selection)
