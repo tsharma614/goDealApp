@@ -225,6 +225,14 @@ struct LobbyView: View {
                 }
             }
         }
+        // React to gameStartReceived using SwiftUI's observation system — this
+        // runs on the main actor as part of a proper SwiftUI update cycle, which
+        // guarantees that @State mutations in onStartGame propagate correctly.
+        .onChange(of: session.gameStartReceived) { _, started in
+            guard started else { return }
+            print("[MP-Guest] onChange(gameStartReceived) → launching game idx=\(session.assignedPlayerIndex)")
+            onStartGame(session, session.assignedPlayerIndex)
+        }
     }
 
     // MARK: - Private helpers
@@ -249,33 +257,35 @@ struct LobbyView: View {
     /// Host: assigns indices to guests, broadcasts gameStart, then launches game.
     private func startHostGame(session: MultipeerSession) {
         let guests = session.connectedPeers
+        print("[MP-Host] startHostGame — \(guests.count) guest(s): \(guests.map(\.displayName))")
         // Assign player indices: host = 0, guests = 1, 2, 3…
         for (offset, peer) in guests.enumerated() {
             let idx = offset + 1
+            print("[MP-Host] sending playerAssignment idx=\(idx) to \(peer.displayName)")
             session.send(.playerAssignment(localPlayerIndex: idx), to: [peer])
         }
         session.send(.gameStart)
         session.stopAdvertising()
+        print("[MP-Host] calling onStartGame(session, 0)")
         onStartGame(session, 0)
     }
 
     /// Guest: set up onReceive to listen for playerAssignment + gameStart.
-    /// Uses [session] capture (reference type) so mutations to assignedPlayerIndex
-    /// are real, not on a discarded SwiftUI view-struct copy.
-    /// Returns a dummy value so it can be used in the `let _ =` pattern in SwiftUI body.
+    /// On gameStart, flips session.gameStartReceived = true; LobbyView reacts to
+    /// that @Observable property change via .onChange — which runs in a proper
+    /// SwiftUI update cycle, guaranteeing @State mutations work correctly.
     @discardableResult
     private func setupGuestReceiver(session: MultipeerSession) -> Bool {
         guard session.onReceive == nil else { return true }
-        // Store the callback on the session (reference type) once, not on self (value type).
-        session.onGameStart = self.onStartGame
         session.onReceive = { [session] message, _ in
             switch message {
             case .playerAssignment(let idx):
                 session.assignedPlayerIndex = idx
+                print("[MP-Guest] received playerAssignment idx=\(idx)")
             case .gameStart:
-                let localIdx = session.assignedPlayerIndex
                 session.stopBrowsing()
-                session.onGameStart?(session, localIdx)
+                print("[MP-Guest] received gameStart, assignedIdx=\(session.assignedPlayerIndex)")
+                session.gameStartReceived = true   // triggers SwiftUI onChange in guestBody
             default:
                 break
             }

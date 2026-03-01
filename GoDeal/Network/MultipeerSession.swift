@@ -25,9 +25,9 @@ final class MultipeerSession: NSObject {
     var onReceive: ((NetworkMessage, MCPeerID) -> Void)?
     /// Guest: player index assigned by the host via .playerAssignment message.
     var assignedPlayerIndex: Int = 0
-    /// Guest: called when .gameStart is received from host. Stored here so closure
-    /// captures the reference-type session (not a SwiftUI value-type view).
-    var onGameStart: ((MultipeerSession, Int) -> Void)?
+    /// Guest: flipped to true when .gameStart is received from host.
+    /// LobbyView observes this via @Observable and calls onStartGame in a proper SwiftUI context.
+    var gameStartReceived: Bool = false
 
     // MARK: - Private
 
