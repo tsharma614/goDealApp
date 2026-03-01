@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import MultipeerConnectivity
 
 // MARK: - Game Setup
 
@@ -39,6 +40,15 @@ final class GameViewModel {
     var pendingPaymentCreditorIndex: Int? = nil
     var pendingPaymentReason: PaymentReason? = nil
 
+    // MARK: - Multiplayer state
+
+    var networkSession: MultipeerSession? = nil
+    var localPlayerIndex: Int = 0
+    var isHost: Bool { networkSession == nil || networkSession?.role == .host }
+
+    /// Host-side: maps MCPeerID → player index in state.players
+    private var peerPlayerIndexMap: [MCPeerID: Int] = [:]
+
     // Stuck-state watchdog
     private var stuckStateTask: Task<Void, Never>?
 
@@ -46,11 +56,11 @@ final class GameViewModel {
 
     var state: GameState { engine.state }
     var currentPlayer: Player { engine.state.currentPlayer }
-    var humanPlayer: Player? { engine.state.players.first(where: { $0.isHuman }) }
-    var humanPlayerIndex: Int? { engine.state.players.firstIndex(where: { $0.isHuman }) }
+    var humanPlayer: Player? { state.players[safe: localPlayerIndex] }
+    var humanPlayerIndex: Int? { localPlayerIndex }
 
     var isHumanTurn: Bool {
-        engine.state.players[engine.state.currentPlayerIndex].isHuman
+        engine.state.currentPlayerIndex == localPlayerIndex
     }
 
     var phase: GamePhase { engine.state.phase }
@@ -66,7 +76,7 @@ final class GameViewModel {
         "Vikram", "Amit", "Tejal", "Akshay", "Tanmay", "Ambi"
     ]
 
-    // MARK: - Init
+    // MARK: - Solo Init
 
     init(setup: GameSetup = GameSetup()) {
         let humanName = setup.humanPlayerName.trimmingCharacters(in: .whitespaces)
@@ -95,6 +105,7 @@ final class GameViewModel {
 
         let engine = GameEngine(state: state)
         self.engine = engine
+        self.localPlayerIndex = 0
 
         // Setup CPU players
         for (idx, player) in state.players.enumerated() where !player.isHuman {
@@ -111,11 +122,71 @@ final class GameViewModel {
         }
     }
 
+    // MARK: - Multiplayer Host Init
+
+    /// Host creates the game after lobby is ready. All players are real humans; no CPUPlayer objects.
+    init(setup: GameSetup, session: MultipeerSession, localPlayerIndex: Int = 0) {
+        let hostName = setup.humanPlayerName.trimmingCharacters(in: .whitespaces)
+        let guests = session.connectedPeers
+
+        var players: [Player] = [Player(name: hostName.isEmpty ? "You" : hostName, isHuman: true)]
+        for peer in guests {
+            players.append(Player(name: peer.displayName, isHuman: true))
+        }
+
+        let deck = DeckBuilder.buildDeck()
+        var state = GameState(players: players, deck: deck)
+        for playerIdx in 0..<state.players.count {
+            let drawn = ActionResolver.drawCards(count: 5, from: &state)
+            state.players[playerIdx].addToHand(drawn)
+        }
+        state.phase = .drawing
+
+        let engine = GameEngine(state: state)
+        self.engine = engine
+        self.networkSession = session
+        self.localPlayerIndex = localPlayerIndex
+
+        // Build peer → player-index map
+        for (offset, peer) in guests.enumerated() {
+            peerPlayerIndexMap[peer] = offset + 1
+        }
+
+        engine.onGameOver = { [weak self] winnerIndex in
+            self?.handleGameOver(winnerIndex: winnerIndex)
+        }
+        engine.onError = { [weak self] message in
+            self?.errorMessage = message
+        }
+        wireSessionCallbacks()
+    }
+
+    // MARK: - Multiplayer Guest Init
+
+    /// Guest device: creates a minimal placeholder engine. Real state arrives via broadcasts.
+    init(session: MultipeerSession, localPlayerIndex: Int) {
+        let placeholder = Player(name: "You", isHuman: true)
+        let emptyState = GameState(players: [placeholder], deck: [])
+        let engine = GameEngine(state: emptyState)
+        self.engine = engine
+        self.networkSession = session
+        self.localPlayerIndex = localPlayerIndex
+
+        engine.onGameOver = { [weak self] winnerIndex in
+            self?.handleGameOver(winnerIndex: winnerIndex)
+        }
+        engine.onError = { [weak self] message in
+            self?.errorMessage = message
+        }
+        wireSessionCallbacks()
+    }
+
     // MARK: - Human Actions
 
-    /// Draw cards at start of turn
+    /// Draw cards at start of turn (solo only; multiplayer host auto-starts all turns)
     func startTurn() {
         guard isHumanTurn, case .drawing = phase else { return }
+        guard networkSession == nil else { return }  // multiplayer: host auto-starts in handlePhaseChange
         withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
             engine.startTurn()
         }
@@ -124,29 +195,28 @@ final class GameViewModel {
     /// Play a card from hand to bank
     func playToBank(cardId: UUID) {
         guard isHumanTurn, state.canPlayCard else { return }
-        engine.playCard(cardId: cardId, as: .bank)
+        routeAction(.playToBank(cardId: cardId), callerIndex: localPlayerIndex)
         clearError()
-        autoEndTurnIfNeeded()
+        if isHost { autoEndTurnIfNeeded() }
     }
 
     /// Play a property card to a specific color group
     func playProperty(cardId: UUID, color: PropertyColor) {
         guard isHumanTurn, state.canPlayCard else { return }
-        engine.playCard(cardId: cardId, as: .property(color))
+        routeAction(.playProperty(cardId: cardId, color: color), callerIndex: localPlayerIndex)
         clearError()
-        autoEndTurnIfNeeded()
+        if isHost { autoEndTurnIfNeeded() }
     }
 
     /// Play a wild property card and assign a color
     func playWildProperty(cardId: UUID, color: PropertyColor) {
         guard isHumanTurn, state.canPlayCard else { return }
-        engine.assignWildColor(cardId: cardId, color: color)
+        routeAction(.playWildProperty(cardId: cardId, color: color), callerIndex: localPlayerIndex)
         clearError()
-        autoEndTurnIfNeeded()
+        if isHost { autoEndTurnIfNeeded() }
     }
 
-    /// Play a steal action (quickGrab/dealSnatcher/swapIt) after the human pre-selected the
-    /// target property in the pre-action picker. The card stays in hand until this is called.
+    /// Play a steal action (quickGrab/dealSnatcher/swapIt) after pre-selecting the target property.
     func playActionWithPreSelection(
         cardId: UUID,
         targetPlayerIndex: Int,
@@ -155,55 +225,59 @@ final class GameViewModel {
         stealSecondaryCardId: UUID? = nil
     ) {
         guard isHumanTurn, state.canPlayCard else { return }
-        engine.state.pendingSteal.cardId = stealCardId
-        engine.state.pendingSteal.color = stealColor
-        engine.state.pendingSteal.secondaryCardId = stealSecondaryCardId
-        engine.playCard(cardId: cardId, as: .action, targetPlayerIndex: targetPlayerIndex)
+        routeAction(.playActionWithPreSelection(
+            cardId: cardId,
+            targetPlayerIndex: targetPlayerIndex,
+            stealCardId: stealCardId,
+            stealColor: stealColor,
+            stealSecondaryCardId: stealSecondaryCardId
+        ), callerIndex: localPlayerIndex)
         clearError()
-        triggerCPUIfNeeded()
-        autoEndTurnIfNeeded()
+        if isHost {
+            triggerCPUIfNeeded()
+            autoEndTurnIfNeeded()
+        }
     }
 
     /// Play an action card
     func playAction(cardId: UUID, targetPlayerIndex: Int? = nil, targetPropertyColor: PropertyColor? = nil) {
         guard isHumanTurn, state.canPlayCard else { return }
-        engine.playCard(
+        routeAction(.playAction(
             cardId: cardId,
-            as: .action,
             targetPlayerIndex: targetPlayerIndex,
             targetPropertyColor: targetPropertyColor
-        )
+        ), callerIndex: localPlayerIndex)
         clearError()
-        triggerCPUIfNeeded()
-        autoEndTurnIfNeeded()
+        if isHost {
+            triggerCPUIfNeeded()
+            autoEndTurnIfNeeded()
+        }
     }
 
     /// Play a rent card
     func playRent(cardId: UUID, color: PropertyColor, targetPlayerIndex: Int? = nil) {
         guard isHumanTurn, state.canPlayCard else { return }
-        engine.playCard(
-            cardId: cardId,
-            as: .rent(color),
-            targetPlayerIndex: targetPlayerIndex
-        )
+        routeAction(.playRent(cardId: cardId, color: color, targetPlayerIndex: targetPlayerIndex),
+                    callerIndex: localPlayerIndex)
         clearError()
-        triggerCPUIfNeeded()
-        autoEndTurnIfNeeded()
+        if isHost {
+            triggerCPUIfNeeded()
+            autoEndTurnIfNeeded()
+        }
     }
 
     /// Human plays No Deal! as a response
     func playNoDeal(cardId: UUID) {
-        guard let humanIdx = humanPlayerIndex else { return }
         log.event("Human played No Deal! — cardId=\(cardId)")
-        engine.playNoDeal(cardId: cardId, playerIndex: humanIdx)
+        routeAction(.playNoDeal(cardId: cardId), callerIndex: localPlayerIndex)
         isShowingNoDealSheet = false
-        triggerCPUIfNeeded()
+        if isHost { triggerCPUIfNeeded() }
     }
 
     /// Human accepts an action (does not play No Deal!)
     func acceptAction() {
         log.event("Human accepted action — card=\(pendingActionCard?.name ?? "?")")
-        engine.acceptAction()
+        routeAction(.acceptAction, callerIndex: localPlayerIndex)
         isShowingNoDealSheet = false
         // Do NOT call triggerCPUIfNeeded() here — handlePhaseChange() fires via
         // onChange(of: state.phase) and handles CPU resumption. Double-triggering
@@ -214,36 +288,37 @@ final class GameViewModel {
     func endTurn() {
         guard isHumanTurn else { return }
         log.event("Human ended turn \(state.turnNumber) — hand=\(humanPlayer?.hand.count ?? 0) cards, sets=\(humanPlayer?.completedSets ?? 0)/3")
-        engine.endTurn()
-        triggerCPUIfNeeded()
+        routeAction(.endTurn, callerIndex: localPlayerIndex)
+        if isHost { triggerCPUIfNeeded() }
     }
 
     /// Human submits their chosen payment cards
     func submitHumanPayment(bankCardIds: [UUID], propertyCardIds: [UUID]) {
-        engine.executeHumanPayment(bankCardIds: bankCardIds, propertyCardIds: propertyCardIds)
+        routeAction(.submitPayment(bankCardIds: bankCardIds, propertyCardIds: propertyCardIds),
+                    callerIndex: localPlayerIndex)
         isShowingPaymentSheet = false
         pendingPaymentAmount = 0
         pendingPaymentCreditorIndex = nil
         pendingPaymentReason = nil
-        triggerCPUIfNeeded()
+        if isHost { triggerCPUIfNeeded() }
     }
 
     /// Human cancels discard to go back and play more cards (only when < 3 cards played)
     func cancelDiscard() {
-        engine.cancelDiscard()
+        routeAction(.cancelDiscard, callerIndex: localPlayerIndex)
         isShowingDiscardSheet = false
     }
 
     /// Human discards a card
     func discard(cardId: UUID) {
-        engine.discard(cardId: cardId)
+        routeAction(.discard(cardId: cardId), callerIndex: localPlayerIndex)
         // Auto-dismiss sheet once discard is complete
         if case .discarding = state.phase {
             // Still need to discard more — keep sheet open
         } else {
             isShowingDiscardSheet = false
         }
-        if case .drawing = state.phase {
+        if isHost, case .drawing = state.phase {
             triggerCPUIfNeeded()
         }
     }
@@ -251,7 +326,7 @@ final class GameViewModel {
     /// Move a wild card to a different color group — free action, no card count cost.
     func reassignWild(cardId: UUID, toColor: PropertyColor) {
         guard isHumanTurn else { return }
-        engine.reassignWild(cardId: cardId, toColor: toColor)
+        routeAction(.reassignWild(cardId: cardId, toColor: toColor), callerIndex: localPlayerIndex)
     }
 
     /// Resolve a property choice (for quickGrab, swapIt, dealSnatcher)
@@ -261,20 +336,203 @@ final class GameViewModel {
         selectedColor: PropertyColor? = nil,
         secondaryCardId: UUID? = nil
     ) {
-        engine.resolvePropertyChoice(
+        routeAction(.resolvePropertyChoice(
             purpose: purpose,
             selectedCardId: selectedCardId,
             selectedColor: selectedColor,
             secondaryCardId: secondaryCardId
-        )
+        ), callerIndex: localPlayerIndex)
         isShowingPropertyChoiceSheet = false
+        if isHost { triggerCPUIfNeeded() }
+    }
+
+    // MARK: - Network Routing
+
+    /// Route an action: host executes immediately; guest sends over network.
+    private func routeAction(_ action: PlayerAction, callerIndex: Int) {
+        if isHost {
+            executeAction(action, callerIndex: callerIndex)
+            broadcastState()
+        } else {
+            networkSession?.send(.playerAction(action))
+        }
+    }
+
+    /// Execute a player action directly on the engine. Host-only.
+    private func executeAction(_ action: PlayerAction, callerIndex: Int) {
+        switch action {
+        case .playToBank(let cardId):
+            engine.playCard(cardId: cardId, as: .bank)
+
+        case .playProperty(let cardId, let color):
+            engine.playCard(cardId: cardId, as: .property(color))
+
+        case .playWildProperty(let cardId, let color):
+            engine.assignWildColor(cardId: cardId, color: color)
+
+        case .playAction(let cardId, let targetIdx, let targetColor):
+            engine.playCard(cardId: cardId, as: .action,
+                            targetPlayerIndex: targetIdx,
+                            targetPropertyColor: targetColor)
+
+        case .playActionWithPreSelection(let cardId, let targetIdx, let stealCardId, let stealColor, let stealSecondaryCardId):
+            engine.state.pendingSteal.cardId = stealCardId
+            engine.state.pendingSteal.color = stealColor
+            engine.state.pendingSteal.secondaryCardId = stealSecondaryCardId
+            engine.playCard(cardId: cardId, as: .action, targetPlayerIndex: targetIdx)
+
+        case .playRent(let cardId, let color, let targetIdx):
+            engine.playCard(cardId: cardId, as: .rent(color), targetPlayerIndex: targetIdx)
+
+        case .playNoDeal(let cardId):
+            engine.playNoDeal(cardId: cardId, playerIndex: callerIndex)
+
+        case .acceptAction:
+            engine.acceptAction()
+
+        case .endTurn:
+            engine.endTurn()
+
+        case .submitPayment(let bankIds, let propIds):
+            engine.executeHumanPayment(bankCardIds: bankIds, propertyCardIds: propIds)
+
+        case .cancelDiscard:
+            engine.cancelDiscard()
+
+        case .discard(let cardId):
+            engine.discard(cardId: cardId)
+
+        case .reassignWild(let cardId, let toColor):
+            engine.reassignWild(cardId: cardId, toColor: toColor)
+
+        case .resolvePropertyChoice(let purpose, let selectedCardId, let selectedColor, let secondaryCardId):
+            engine.resolvePropertyChoice(
+                purpose: purpose,
+                selectedCardId: selectedCardId,
+                selectedColor: selectedColor,
+                secondaryCardId: secondaryCardId
+            )
+        }
+    }
+
+    // MARK: - Host: broadcast state
+
+    private func broadcastState() {
+        guard isHost, let session = networkSession else { return }
+        session.send(.gameState(engine.state))
+    }
+
+    // MARK: - Guest: apply incoming state
+
+    func applyNetworkState(_ newState: GameState) {
+        engine.state = newState
+        // SwiftUI's @Observable system will notify views via observation tracking.
+        // updateGuestUI() drives sheet visibility for the local guest player.
+        updateGuestUI()
+    }
+
+    /// Guest: update overlay sheet visibility based on current phase.
+    private func updateGuestUI() {
+        let humanIdx = localPlayerIndex
+        switch state.phase {
+        case .awaitingResponse(let targetIdx, let actionCard, let attackerIdx):
+            if targetIdx == humanIdx {
+                pendingActionCard = actionCard
+                pendingNoDealAttackerName = state.players[attackerIdx].name
+                pendingNoDealCards = state.players[targetIdx].hand.filter { $0.isNoDeal }
+                pendingNoDealActionDetail = computeNoDealDetail(
+                    actionCard: actionCard, attackerIdx: attackerIdx, targetIdx: targetIdx)
+                isShowingNoDealSheet = true
+            }
+
+        case .awaitingPayment(let debtorIdx, let creditorIdx, let amount, let reason):
+            if debtorIdx == humanIdx {
+                let me = state.players[humanIdx]
+                if me.totalAssets == 0 {
+                    networkSession?.send(.playerAction(.submitPayment(bankCardIds: [], propertyCardIds: [])))
+                } else {
+                    pendingPaymentAmount = amount
+                    pendingPaymentCreditorIndex = creditorIdx
+                    pendingPaymentReason = reason
+                    Task { @MainActor [weak self] in
+                        try? await Task.sleep(nanoseconds: 350_000_000)
+                        guard let self,
+                              case .awaitingPayment(let d, _, _, _) = self.state.phase,
+                              d == humanIdx else { return }
+                        self.isShowingPaymentSheet = true
+                    }
+                }
+            }
+
+        case .awaitingPropertyChoice(let chooserIdx, _):
+            if chooserIdx == humanIdx {
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: 350_000_000)
+                    guard let self,
+                          case .awaitingPropertyChoice(let c, _) = self.state.phase,
+                          c == chooserIdx else { return }
+                    self.isShowingPropertyChoiceSheet = true
+                }
+            }
+
+        case .discarding(let idx):
+            if idx == humanIdx {
+                isShowingDiscardSheet = true
+            }
+
+        case .gameOver(let w):
+            handleGameOver(winnerIndex: w)
+
+        default:
+            break
+        }
+    }
+
+    // MARK: - Host: handle incoming player action
+
+    func handleIncomingAction(_ action: PlayerAction, from peerIndex: Int) {
+        // For response/payment/choice actions, the sender may not be the current player
+        switch action {
+        case .playNoDeal, .acceptAction, .submitPayment,
+             .resolvePropertyChoice, .discard, .cancelDiscard:
+            break  // allowed from any player (they are responding, not acting as current player)
+        default:
+            guard state.currentPlayerIndex == peerIndex else { return }
+        }
+        executeAction(action, callerIndex: peerIndex)
+        handlePhaseChange()
+        broadcastState()
         triggerCPUIfNeeded()
+    }
+
+    // MARK: - Wire Session Callbacks
+
+    private func wireSessionCallbacks() {
+        networkSession?.onReceive = { [weak self] message, peer in
+            guard let self else { return }
+            switch message {
+            case .gameState(let gs):
+                guard !self.isHost else { return }
+                self.applyNetworkState(gs)
+            case .playerAction(let action):
+                guard self.isHost else { return }
+                let idx = self.peerIndex(for: peer)
+                self.handleIncomingAction(action, from: idx)
+            default:
+                break
+            }
+        }
+    }
+
+    private func peerIndex(for peer: MCPeerID) -> Int {
+        peerPlayerIndexMap[peer] ?? -1
     }
 
     // MARK: - CPU Turn Trigger
 
     @MainActor
     func triggerCPUIfNeeded() {
+        guard networkSession == nil else { return }   // no CPU in multiplayer
         guard !isHumanTurn else { return }
         let cpuIdx = state.currentPlayerIndex
         guard let cpu = cpuPlayers.first(where: { $0.playerIndex == cpuIdx }) else { return }
@@ -335,9 +593,14 @@ final class GameViewModel {
             break
         }
 
+        // Guest: sheet updates are driven by applyNetworkState → updateGuestUI
+        guard isHost else { return }
+
+        let humanIdx = localPlayerIndex
+
         switch state.phase {
         case .awaitingResponse(let targetIdx, let actionCard, let attackerIdx):
-            if let humanIdx = humanPlayerIndex, targetIdx == humanIdx {
+            if targetIdx == humanIdx {
                 // Snapshot context before showing sheet so the body doesn't rely on live phase
                 pendingActionCard = actionCard
                 pendingNoDealAttackerName = state.players[attackerIdx].name
@@ -345,22 +608,24 @@ final class GameViewModel {
                 pendingNoDealActionDetail = computeNoDealDetail(actionCard: actionCard, attackerIdx: attackerIdx, targetIdx: humanIdx)
                 log.event("Showing NoDeal sheet — attacker=\(pendingNoDealAttackerName) card=\(actionCard.name)")
                 isShowingNoDealSheet = true
-            } else {
-                // CPU handles response automatically
+            } else if networkSession == nil {
+                // Solo: CPU handles response automatically
                 if let cpu = cpuPlayers.first(where: { $0.playerIndex == targetIdx }) {
                     Task { @MainActor in
                         await cpu.respondToAction(actionCard: actionCard, engine: engine)
                     }
                 }
             }
+            // Multiplayer non-local target: wait for that device to send response
 
         case .awaitingPayment(let debtorIdx, let creditorIdx, let amount, let reason):
-            if let humanIdx = humanPlayerIndex, debtorIdx == humanIdx {
+            if debtorIdx == humanIdx {
                 let human = state.players[humanIdx]
                 if human.totalAssets == 0 {
                     // Nothing to pay — auto-resolve
                     log.event("Human has $0 assets — auto-resolving payment")
                     engine.resolveCPUPayment(debtorIndex: humanIdx, creditorIndex: creditorIdx, amount: amount)
+                    broadcastState()
                     triggerCPUIfNeeded()
                 } else {
                     // Store context and delay sheet presentation to avoid overlap with ActionTargetSheet dismissal
@@ -372,21 +637,22 @@ final class GameViewModel {
                         try? await Task.sleep(nanoseconds: 350_000_000)
                         guard let self else { return }
                         guard case .awaitingPayment(let d, _, _, _) = self.state.phase,
-                              let hIdx = self.humanPlayerIndex, d == hIdx else { return }
+                              d == humanIdx else { return }
                         self.pendingPaymentAmount = capturedAmount
                         self.pendingPaymentCreditorIndex = capturedCreditorIdx
                         self.pendingPaymentReason = capturedReason
                         self.isShowingPaymentSheet = true
                     }
                 }
-            } else {
-                // CPU debtor — auto-resolve
+            } else if networkSession == nil {
+                // Solo: CPU debtor — auto-resolve
                 engine.resolveCPUPayment(debtorIndex: debtorIdx, creditorIndex: creditorIdx, amount: amount)
                 triggerCPUIfNeeded()
             }
+            // Multiplayer non-local: wait for that player's device to send submitPayment
 
         case .awaitingPropertyChoice(let chooserIdx, _):
-            if let humanIdx = humanPlayerIndex, chooserIdx == humanIdx {
+            if chooserIdx == humanIdx {
                 // Delay to avoid presenting over a still-dismissing ActionTargetSheet
                 let capturedChooserIdx = chooserIdx
                 log.event("Scheduling PropertyChoiceSheet — chooser=\(state.players[chooserIdx].name)")
@@ -397,21 +663,30 @@ final class GameViewModel {
                           c == capturedChooserIdx else { return }
                     self.isShowingPropertyChoiceSheet = true
                 }
-            } else {
-                // CPU needs to make a property choice
+            } else if networkSession == nil {
+                // Solo: CPU needs to make a property choice
                 triggerCPUIfNeeded()
             }
+            // Multiplayer non-local: wait for network
 
         case .discarding(let idx):
-            if let humanIdx = humanPlayerIndex, idx == humanIdx {
+            if idx == humanIdx {
                 isShowingDiscardSheet = true
             }
+            // Solo: CPU handles discard in its turn; multiplayer: wait for player's device
 
         case .drawing:
-            if !isHumanTurn {
-                // Immediately start CPU's turn (phase just became .drawing for CPU)
+            if let session = networkSession {
+                // Multiplayer: host auto-starts all drawing phases so guests never see raw "Draw" state
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    guard let self, case .drawing = self.state.phase else { return }
+                    self.engine.startTurn()
+                    session.send(.gameState(self.engine.state))
+                }
+            } else if !isHumanTurn {
+                // Solo: immediately start CPU's turn
                 triggerCPUIfNeeded()
-                // Also set a watchdog in case something goes wrong
                 stuckStateTask = Task { @MainActor [weak self] in
                     try? await Task.sleep(nanoseconds: 15_000_000_000)
                     guard !Task.isCancelled, let self else { return }
@@ -421,10 +696,9 @@ final class GameViewModel {
             }
 
         case .playing:
-            if !isHumanTurn {
-                // Immediately resume CPU's turn (phase just became .playing for CPU)
+            if networkSession == nil && !isHumanTurn {
+                // Solo: immediately resume CPU's turn
                 triggerCPUIfNeeded()
-                // Watchdog backup
                 stuckStateTask = Task { @MainActor [weak self] in
                     try? await Task.sleep(nanoseconds: 15_000_000_000)
                     guard !Task.isCancelled, let self else { return }
@@ -488,6 +762,7 @@ final class GameViewModel {
     }
 
     private func handleGameOver(winnerIndex: Int) {
+        guard state.players.indices.contains(winnerIndex) else { return }
         gameOverWinnerName = state.players[winnerIndex].name
         log.event("Game over — winner: \(state.players[winnerIndex].name)")
     }
@@ -505,7 +780,8 @@ final class GameViewModel {
                   case .playing = self.state.phase,
                   self.state.cardsPlayedThisTurn >= 3 else { return }
             self.log.event("Auto-ending turn (3/3 cards played)")
-            self.engine.endTurn()
+            self.routeAction(.endTurn, callerIndex: self.localPlayerIndex)
+            self.broadcastState()
             self.triggerCPUIfNeeded()
         }
     }
@@ -514,12 +790,12 @@ final class GameViewModel {
         switch phase {
         case .drawing:                      return "drawing"
         case .playing:                      return "playing (\(state.cardsPlayedThisTurn)/3 played)"
-        case .awaitingResponse(let t, let c, _): return "awaitingResponse target=\(state.players[t].name) card=\(c.name)"
-        case .awaitingPayment(let d, let c, let a, _): return "awaitingPayment debtor=\(state.players[d].name) creditor=\(state.players[c].name) $\(a)M"
-        case .awaitingPropertyChoice(let c, let p): return "awaitingPropertyChoice chooser=\(state.players[c].name) \(p)"
-        case .awaitingWildColorChoice(let p, _): return "awaitingWildColor player=\(state.players[p].name)"
-        case .discarding(let p):            return "discarding player=\(state.players[p].name)"
-        case .gameOver(let w):              return "gameOver winner=\(state.players[w].name)"
+        case .awaitingResponse(let t, let c, _): return "awaitingResponse target=\(state.players[safe: t]?.name ?? "?") card=\(c.name)"
+        case .awaitingPayment(let d, let c, let a, _): return "awaitingPayment debtor=\(state.players[safe: d]?.name ?? "?") creditor=\(state.players[safe: c]?.name ?? "?") $\(a)M"
+        case .awaitingPropertyChoice(let c, let p): return "awaitingPropertyChoice chooser=\(state.players[safe: c]?.name ?? "?") \(p)"
+        case .awaitingWildColorChoice(let p, _): return "awaitingWildColor player=\(state.players[safe: p]?.name ?? "?")"
+        case .discarding(let p):            return "discarding player=\(state.players[safe: p]?.name ?? "?")"
+        case .gameOver(let w):              return "gameOver winner=\(state.players[safe: w]?.name ?? "?")"
         }
     }
 
@@ -536,6 +812,9 @@ final class GameViewModel {
             self?.errorMessage = message
         }
         self.cpuPlayers = newVM.cpuPlayers
+        self.networkSession = nil
+        self.localPlayerIndex = 0
+        self.peerPlayerIndexMap = [:]
         self.isShowingNoDealSheet = false
         self.isShowingPaymentSheet = false
         self.isShowingDiscardSheet = false

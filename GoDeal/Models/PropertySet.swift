@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Property Set
 
-struct PropertySet: Hashable, Identifiable {
+struct PropertySet: Hashable, Identifiable, Codable {
     var id: PropertyColor { color }
     let color: PropertyColor
     var properties: [Card]

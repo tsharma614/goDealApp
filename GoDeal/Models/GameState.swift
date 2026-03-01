@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Game Phase
 
-enum GamePhase: Equatable {
+enum GamePhase: Equatable, Codable {
     case drawing
     case playing
     case awaitingResponse(targetPlayerIndex: Int, actionCard: Card, attackerIndex: Int)
@@ -33,14 +33,14 @@ enum GamePhase: Equatable {
 
 // MARK: - Supporting Enums
 
-enum PaymentReason: Equatable {
+enum PaymentReason: Equatable, Codable {
     case rent(PropertyColor)
     case collectNow
     case bigSpender
     case dealSnatcher  // Target must pay back: property is taken instead
 }
 
-enum PropertyChoicePurpose: Equatable {
+enum PropertyChoicePurpose: Equatable, Codable {
     case quickGrab(targetPlayerIndex: Int)                     // Attacker picks which property to steal
     case quickGrabVictim(attackerPlayerIndex: Int)             // Human victim picks which property to sacrifice
     case swapIt(targetPlayerIndex: Int)                        // Attacker picks their card + target card
@@ -53,7 +53,7 @@ enum PropertyChoicePurpose: Equatable {
 
 // MARK: - Pending Double Up
 
-struct PendingDoubleUp {
+struct PendingDoubleUp: Codable {
     var isActive: Bool = false
     var rentCardPlayed: Bool = false
 }
@@ -63,7 +63,7 @@ struct PendingDoubleUp {
 // property BEFORE the card is played so they can cancel freely. These fields
 // carry that choice through the awaitingResponse phase so executeQueuedAction
 // can execute immediately after the target accepts (no second picker needed).
-struct PendingStealPreSelection {
+struct PendingStealPreSelection: Codable {
     var cardId: UUID? = nil          // quickGrab / swapIt attacker card
     var color: PropertyColor? = nil  // dealSnatcher
     var secondaryCardId: UUID? = nil // swapIt target card
@@ -71,7 +71,7 @@ struct PendingStealPreSelection {
 
 // MARK: - Game State
 
-struct GameState {
+struct GameState: Codable {
     var players: [Player]
     var deck: [Card]
     var discardPile: [Card]

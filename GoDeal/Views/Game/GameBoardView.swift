@@ -145,7 +145,7 @@ struct GameBoardView: View {
         .sheet(isPresented: $vm.isShowingNoDealSheet, onDismiss: {
             // If the sheet was swiped away without choosing, auto-accept so game never freezes
             if case .awaitingResponse(let targetIdx, _, _) = viewModel.state.phase,
-               let humanIdx = viewModel.humanPlayerIndex, targetIdx == humanIdx {
+               targetIdx == viewModel.localPlayerIndex {
                 viewModel.acceptAction()
             }
         }) {
@@ -286,9 +286,8 @@ struct GameBoardView: View {
             .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $vm.isShowingPropertyChoiceSheet) {
-            if let humanIdx = viewModel.humanPlayerIndex,
-               case .awaitingPropertyChoice(let chooserIdx, let purpose) = viewModel.state.phase,
-               chooserIdx == humanIdx {
+            if case .awaitingPropertyChoice(let chooserIdx, let purpose) = viewModel.state.phase,
+               chooserIdx == viewModel.localPlayerIndex {
                 let targetIdx: Int = {
                     switch purpose {
                     case .quickGrab(let idx): return idx
@@ -302,7 +301,7 @@ struct GameBoardView: View {
                 }()
                 PropertyPickerSheet(
                     purpose: purpose,
-                    humanPlayer: viewModel.state.players[humanIdx],
+                    humanPlayer: viewModel.state.players[viewModel.localPlayerIndex],
                     targetPlayer: viewModel.state.players[targetIdx],
                     onResolve: { cardId, color, secondaryId in
                         viewModel.resolvePropertyChoice(

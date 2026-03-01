@@ -567,7 +567,7 @@ final class GameEngine {
 
 // MARK: - Card Destination
 
-enum CardDestination {
+enum CardDestination: Codable {
     case bank
     case property(PropertyColor)
     case action

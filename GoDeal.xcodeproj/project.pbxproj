@@ -49,6 +49,10 @@
 		AA200000000000000000030 /* DeckBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000030 /* DeckBuilderTests.swift */; };
 		AA200000000000000000031 /* GameEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000031 /* GameEngineTests.swift */; };
 		AA200000000000000000032 /* WinCheckerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000032 /* WinCheckerTests.swift */; };
+		AA200000000000000000040 /* NetworkMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000040 /* NetworkMessage.swift */; };
+		AA200000000000000000041 /* MultipeerSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000041 /* MultipeerSession.swift */; };
+		AA200000000000000000042 /* LobbyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000042 /* LobbyView.swift */; };
+		AA200000000000000000043 /* MultipeerConnectivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA100000000000000000043 /* MultipeerConnectivity.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -104,6 +108,11 @@
 		AA100000000000000000030 /* DeckBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckBuilderTests.swift; sourceTree = "<group>"; };
 		AA100000000000000000031 /* GameEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameEngineTests.swift; sourceTree = "<group>"; };
 		AA100000000000000000032 /* WinCheckerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WinCheckerTests.swift; sourceTree = "<group>"; };
+		AA100000000000000000044 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA100000000000000000040 /* NetworkMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMessage.swift; sourceTree = "<group>"; };
+		AA100000000000000000041 /* MultipeerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultipeerSession.swift; sourceTree = "<group>"; };
+		AA100000000000000000042 /* LobbyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LobbyView.swift; sourceTree = "<group>"; };
+		AA100000000000000000043 /* MultipeerConnectivity.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MultipeerConnectivity.framework; path = System/Library/Frameworks/MultipeerConnectivity.framework; sourceTree = SDKROOT; };
 		AA1000000000000000000F0 /* GoDeal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GoDeal.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA1000000000000000000F1 /* GoDealTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GoDealTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -113,6 +122,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA200000000000000000043 /* MultipeerConnectivity.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -132,7 +142,16 @@
 				AA400000000000000000002 /* GoDeal */,
 				AA40000000000000000000A /* GoDealTests */,
 				AA400000000000000000009 /* Products */,
+				AA400000000000000000051 /* Frameworks */,
 			);
+			sourceTree = "<group>";
+		};
+		AA400000000000000000051 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				AA100000000000000000043 /* MultipeerConnectivity.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 		AA400000000000000000002 /* GoDeal */ = {
@@ -145,6 +164,7 @@
 				AA400000000000000000007 /* ViewModels */,
 				AA400000000000000000008 /* Views */,
 				AA40000000000000000000B /* Customization */,
+				AA400000000000000000050 /* Network */,
 				AA100000000000000000022 /* Assets.xcassets */,
 			);
 			path = GoDeal;
@@ -155,6 +175,7 @@
 			children = (
 				AA100000000000000000001 /* GoDealApp.swift */,
 				AA100000000000000000002 /* ContentView.swift */,
+				AA100000000000000000044 /* Info.plist */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -248,8 +269,18 @@
 			children = (
 				AA100000000000000000012 /* MainMenuView.swift */,
 				AA100000000000000000013 /* GameSetupView.swift */,
+				AA100000000000000000042 /* LobbyView.swift */,
 			);
 			path = Menu;
+			sourceTree = "<group>";
+		};
+		AA400000000000000000050 /* Network */ = {
+			isa = PBXGroup;
+			children = (
+				AA100000000000000000040 /* NetworkMessage.swift */,
+				AA100000000000000000041 /* MultipeerSession.swift */,
+			);
+			path = Network;
 			sourceTree = "<group>";
 		};
 		AA40000000000000000000D /* Game */ = {
@@ -409,6 +440,9 @@
 				AA20000000000000000001F /* CardCustomizationView.swift in Sources */,
 				AA200000000000000000020 /* PropertyNameEditorView.swift in Sources */,
 				AA200000000000000000021 /* CardImageStore.swift in Sources */,
+				AA200000000000000000040 /* NetworkMessage.swift in Sources */,
+				AA200000000000000000041 /* MultipeerSession.swift in Sources */,
+				AA200000000000000000042 /* LobbyView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -561,12 +595,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = U9782HGY2C;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait";
+				INFOPLIST_FILE = GoDeal/App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -589,12 +618,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = U9782HGY2C;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait";
+				INFOPLIST_FILE = GoDeal/App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

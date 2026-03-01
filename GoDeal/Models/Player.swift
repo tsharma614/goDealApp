@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Player
 
-struct Player: Identifiable, Hashable {
+struct Player: Identifiable, Hashable, Codable {
     let id: UUID
     var name: String
     var isHuman: Bool

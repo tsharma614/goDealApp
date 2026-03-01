@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Card Type
 
-enum CardType: Hashable {
+enum CardType: Hashable, Codable {
     case property(PropertyColor)
     case money(Int)
     case action(ActionType)
@@ -13,7 +13,7 @@ enum CardType: Hashable {
 
 // MARK: - Action Type
 
-enum ActionType: String, CaseIterable, Hashable {
+enum ActionType: String, CaseIterable, Hashable, Codable {
     case dealSnatcher  // Steal a complete property set
     case noDeal        // Cancel any action played against you
     case quickGrab     // Steal one property from an incomplete set
@@ -58,7 +58,7 @@ enum ActionType: String, CaseIterable, Hashable {
 
 // MARK: - Card
 
-struct Card: Identifiable, Hashable {
+struct Card: Identifiable, Hashable, Codable {
     let id: UUID
     let type: CardType
     let name: String

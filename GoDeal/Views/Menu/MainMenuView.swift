@@ -5,6 +5,7 @@ import SwiftUI
 struct MainMenuView: View {
     @State private var isShowingGame = false
     @State private var isShowingSetup = false
+    @State private var isShowingLobby = false
     @State private var isShowingCustomization = false
     @State private var gameViewModel = GameViewModel()
     @State private var customizationViewModel = CustomizationViewModel()
@@ -34,6 +35,10 @@ struct MainMenuView: View {
                     VStack(spacing: 16) {
                         menuButton(title: "Play Now", icon: "play.fill", color: .green) {
                             isShowingSetup = true
+                        }
+
+                        menuButton(title: "Play with Friends", icon: "person.2.fill", color: .blue) {
+                            isShowingLobby = true
                         }
 
                         menuButton(title: "Customize Cards", icon: "paintbrush.fill", color: .purple) {
@@ -77,6 +82,19 @@ struct MainMenuView: View {
         .sheet(isPresented: $isShowingCustomization) {
             CustomizationMenuView()
                 .environment(customizationViewModel)
+        }
+        .sheet(isPresented: $isShowingLobby) {
+            LobbyView { session, localIdx in
+                // Lobby signals game start — build ViewModel and navigate to board
+                let setup = GameSetup()
+                if session.role == .host {
+                    gameViewModel = GameViewModel(setup: setup, session: session, localPlayerIndex: localIdx)
+                } else {
+                    gameViewModel = GameViewModel(session: session, localPlayerIndex: localIdx)
+                }
+                isShowingLobby = false
+                isShowingGame = true
+            }
         }
     }
 
