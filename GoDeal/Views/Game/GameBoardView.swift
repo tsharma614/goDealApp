@@ -17,6 +17,7 @@ struct GameBoardView: View {
     @State private var showActionBankDialog = false
     @State private var pendingActionCard: Card? = nil
     @State private var showLogSheet = false
+    @State private var pendingImprovementCard: Card? = nil  // corner store / tower block multi-set picker
 
     // Double rent prompt state
     @State private var showDoubleRentDialog = false
@@ -347,6 +348,7 @@ struct GameBoardView: View {
                     onResolve: { selectedPropId, selectedColor, secondaryPropId in
                         preActionCard = nil
                         preActionTargetIdx = nil
+
                         viewModel.playActionWithPreSelection(
                             cardId: card.id,
                             targetPlayerIndex: targetIdx,
@@ -364,6 +366,13 @@ struct GameBoardView: View {
                     }
                 )
                 .presentationDetents([.large])
+            } else {
+                // Guard failed (targetIdx nil or out of range) — log and auto-dismiss
+                Color.clear.onAppear {
+                    logger.error("Pre-action steal sheet blank — preActionTargetIdx=\(String(describing: preActionTargetIdx)) players=\(viewModel.state.players.count)")
+                    preActionCard = nil
+                    preActionTargetIdx = nil
+                }
             }
         }
         .sheet(isPresented: $vm.isShowingPaymentSheet) {
@@ -416,9 +425,19 @@ struct GameBoardView: View {
                 }
                 if pendingActionCanPlay {
                     Button("Play as action") {
-                        viewModel.playAction(cardId: card.id)
+                        let myProps = viewModel.humanPlayer?.properties ?? [:]
+                        let isCornerStore: Bool = { if case .action(.cornerStore) = card.type { return true }; return false }()
+                        let eligibleCount = isCornerStore
+                            ? myProps.filter { $0.value.canAddCornerStore }.count
+                            : myProps.filter { $0.value.canAddTowerBlock }.count
                         pendingActionCard = nil
-                        selectedCardId = nil
+                        if eligibleCount > 1 {
+                            // Multiple eligible sets — let user pick which one
+                            pendingImprovementCard = card
+                        } else {
+                            viewModel.playAction(cardId: card.id)
+                            selectedCardId = nil
+                        }
                     }
                 }
                 Button("Cancel", role: .cancel) { pendingActionCard = nil }
@@ -549,23 +568,68 @@ struct GameBoardView: View {
                 selectedCardId = nil
             }
         }
+        // Improvement card picker: shown when player has multiple eligible sets
+        .sheet(item: $pendingImprovementCard) { card in
+            let isCornerStore: Bool = { if case .action(.cornerStore) = card.type { return true }; return false }()
+            let eligible: [PropertyColor] = {
+                let props = viewModel.humanPlayer?.properties ?? [:]
+                if isCornerStore {
+                    return props.filter { $0.value.canAddCornerStore }.keys.sorted { $0.displayName < $1.displayName }
+                } else {
+                    return props.filter { $0.value.canAddTowerBlock }.keys.sorted { $0.displayName < $1.displayName }
+                }
+            }()
+            NavigationStack {
+                List {
+                    ForEach(eligible, id: \.self) { color in
+                        let set = viewModel.humanPlayer?.properties[color]
+                        Button {
+                            pendingImprovementCard = nil
+                            viewModel.playAction(cardId: card.id, targetPropertyColor: color)
+                            selectedCardId = nil
+                        } label: {
+                            HStack(spacing: 12) {
+                                Circle().fill(color.uiColor).frame(width: 22, height: 22)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(color.displayName).font(.body.weight(.semibold))
+                                    Text("\(set?.properties.count ?? 0)/\(color.setSize) properties · $\(set?.currentRent ?? 0)M rent")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .navigationTitle(isCornerStore ? "Add Corner Store" : "Add Tower Block")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { pendingImprovementCard = nil }
+                    }
+                }
+            }
+            .presentationDetents([.medium])
+        }
+        // Multiplayer: guest confirms play-again request from host
+        .alert("Play Again?", isPresented: $vm.showPlayAgainConfirmation) {
+            Button("Accept") { viewModel.confirmPlayAgain() }
+            Button("Decline", role: .cancel) { vm.showPlayAgainConfirmation = false }
+        } message: {
+            Text("The host wants to play another round with the same players.")
+        }
         .onChange(of: viewModel.state.phase) { _, _ in
             viewModel.handlePhaseChange()
         }
         .onAppear {
-            // Start the game on first display.
-            // onChange(of: phase) only fires on changes, not the initial value,
-            // so we must manually kick off the first phase here.
+            // Kick off phase handling on first display (onChange only fires on changes, not initial value).
             if case .drawing = viewModel.state.phase {
                 if viewModel.networkSession != nil {
-                    // Multiplayer: handlePhaseChange auto-starts the drawing phase
-                    // (host calls engine.startTurn() after 200ms, then broadcasts)
                     viewModel.handlePhaseChange()
-                } else if viewModel.isHumanTurn {
-                    viewModel.startTurn()
-                } else {
+                } else if !viewModel.isHumanTurn {
                     viewModel.triggerCPUIfNeeded()
                 }
+                // Solo human turn: Draw button is visible; no auto-draw
             }
         }
     }
@@ -695,15 +759,44 @@ struct GameBoardView: View {
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.8))
 
-                Button {
-                    showPlayAgainSetup = true
-                } label: {
-                    Text("Play Again")
-                        .font(.headline)
-                        .frame(width: 200)
-                        .padding()
-                        .background(.white, in: RoundedRectangle(cornerRadius: 14))
-                        .foregroundStyle(.black)
+                if viewModel.networkSession != nil {
+                    // Multiplayer: coordinate with all players
+                    if viewModel.isHost {
+                        if viewModel.isWaitingForPlayAgain {
+                            Text("Waiting for others…")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.7))
+                            Button("Cancel") { viewModel.cancelWaitingForPlayAgain() }
+                                .foregroundStyle(.white.opacity(0.5))
+                        } else {
+                            Button {
+                                viewModel.requestPlayAgain()
+                            } label: {
+                                Text("Play Again")
+                                    .font(.headline)
+                                    .frame(width: 200)
+                                    .padding()
+                                    .background(.white, in: RoundedRectangle(cornerRadius: 14))
+                                    .foregroundStyle(.black)
+                            }
+                        }
+                    } else {
+                        Text("Waiting for host…")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.7))
+                    }
+                } else {
+                    // Solo: open setup screen
+                    Button {
+                        showPlayAgainSetup = true
+                    } label: {
+                        Text("Play Again")
+                            .font(.headline)
+                            .frame(width: 200)
+                            .padding()
+                            .background(.white, in: RoundedRectangle(cornerRadius: 14))
+                            .foregroundStyle(.black)
+                    }
                 }
             }
             .padding(40)
@@ -954,7 +1047,7 @@ struct WildPropertyColorPicker: View {
                                     .font(.body.weight(.medium))
                                     .foregroundStyle(.primary)
                                 Spacer()
-                                Text("Rent: \(color.rentTable.map { "$\($0)M" }.joined(separator: "/"))")
+                                Text("Rent: \(color.rentTable.prefix(color.setSize).map { "$\($0)M" }.joined(separator: "/"))")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }

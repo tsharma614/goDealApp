@@ -155,9 +155,16 @@ final class GameEngine {
 
         switch actionType {
         case .dealSnatcher:
-            // CPU attacker auto-steals. Human attacker uses pre-selected color (picked before card was played).
-            if state.players[targetIdx].isHuman {
-                // CPU steals the human's highest-rent complete set automatically
+            // Pre-selection takes priority (human attacker in both solo and multiplayer).
+            // CPU attacker path only fires when no pre-selection was made.
+            if let preColor = state.pendingSteal.color {
+                // Human attacker pre-selected a color before playing the card
+                log.event("[\(state.players[attackerIndex].name)] Deal Snatcher executes with pre-selected \(preColor.displayName)")
+                ActionResolver.executeDealSnatcher(attackerIndex: attackerIndex, targetIndex: targetIdx, color: preColor, state: &state)
+                state.pendingSteal = PendingStealPreSelection()
+                state.phase = .playing
+            } else if !state.players[attackerIndex].isHuman {
+                // CPU attacker — steal the target's highest-rent complete set automatically
                 let completeSets = state.players[targetIdx].properties.filter { $0.value.isComplete }
                 if let (color, _) = completeSets.max(by: { $0.value.currentRent < $1.value.currentRent }) {
                     log.event("[\(state.players[attackerIndex].name)] Deal Snatcher auto-selects \(color.displayName) set from \(state.players[targetIdx].name)")
@@ -171,12 +178,6 @@ final class GameEngine {
                     log.warn("[\(state.players[attackerIndex].name)] Deal Snatcher — no complete sets to steal (should have been caught earlier)")
                 }
                 state.phase = .playing
-            } else if let preColor = state.pendingSteal.color {
-                // Human attacker pre-selected a color before playing the card
-                log.event("[\(state.players[attackerIndex].name)] Deal Snatcher executes with pre-selected \(preColor.displayName)")
-                ActionResolver.executeDealSnatcher(attackerIndex: attackerIndex, targetIndex: targetIdx, color: preColor, state: &state)
-                state.pendingSteal = PendingStealPreSelection()
-                state.phase = .playing
             } else {
                 // Fallback: show picker (legacy path)
                 state.phase = .awaitingPropertyChoice(
@@ -186,8 +187,16 @@ final class GameEngine {
             }
 
         case .quickGrab:
-            // CPU attacker auto-steals. Human attacker uses pre-selected cardId (picked before card was played).
-            if state.players[targetIdx].isHuman {
+            // Pre-selection takes priority (human attacker in both solo and multiplayer).
+            // CPU attacker path only fires when no pre-selection was made.
+            if let preCardId = state.pendingSteal.cardId {
+                // Human attacker pre-selected a card before playing
+                log.event("[\(state.players[attackerIndex].name)] Quick Grab executes with pre-selected card id=\(preCardId)")
+                ActionResolver.executeQuickGrab(attackerIndex: attackerIndex, targetIndex: targetIdx, cardId: preCardId, state: &state)
+                state.pendingSteal = PendingStealPreSelection()
+                state.phase = .playing
+            } else if !state.players[attackerIndex].isHuman {
+                // CPU attacker — auto-steal best card from target's incomplete sets
                 let stealable = state.players[targetIdx].properties.values
                     .filter { !$0.isComplete }
                     .flatMap { $0.properties }
@@ -203,12 +212,6 @@ final class GameEngine {
                     log.warn("[\(state.players[attackerIndex].name)] Quick Grab — no stealable properties (should have been caught earlier)")
                 }
                 state.phase = .playing
-            } else if let preCardId = state.pendingSteal.cardId {
-                // Human attacker pre-selected a card before playing
-                log.event("[\(state.players[attackerIndex].name)] Quick Grab executes with pre-selected card id=\(preCardId)")
-                ActionResolver.executeQuickGrab(attackerIndex: attackerIndex, targetIndex: targetIdx, cardId: preCardId, state: &state)
-                state.pendingSteal = PendingStealPreSelection()
-                state.phase = .playing
             } else {
                 // Fallback: show picker
                 state.phase = .awaitingPropertyChoice(
@@ -218,29 +221,31 @@ final class GameEngine {
             }
 
         case .swapIt:
-            // CPU attacker auto-trades. Human attacker uses pre-selected cards.
-            if state.players[targetIdx].isHuman {
-                let humanProps = state.players[targetIdx].properties.values.flatMap { $0.properties }
-                let cpuProps = state.players[attackerIndex].properties.values.flatMap { $0.properties }
-                if let humanCard = humanProps.max(by: { $0.monetaryValue < $1.monetaryValue }),
-                   let cpuCard = cpuProps.min(by: { $0.monetaryValue < $1.monetaryValue }) {
-                    log.event("[\(state.players[attackerIndex].name)] Swap It auto-selects '\(humanCard.name)' ↔ '\(cpuCard.name)' with \(state.players[targetIdx].name)")
+            // Pre-selection takes priority (human attacker in both solo and multiplayer).
+            // CPU attacker path only fires when no pre-selection was made.
+            if let myCardId = state.pendingSteal.cardId, let theirCardId = state.pendingSteal.secondaryCardId {
+                // Human attacker pre-selected both cards
+                log.event("[\(state.players[attackerIndex].name)] Swap It executes with pre-selected cards")
+                ActionResolver.executeSwapIt(attackerIndex: attackerIndex, targetIndex: targetIdx, attackerCardId: myCardId, targetCardId: theirCardId, state: &state)
+                state.pendingSteal = PendingStealPreSelection()
+                state.phase = .playing
+            } else if !state.players[attackerIndex].isHuman {
+                // CPU attacker — auto-trade worst of own for best of target
+                let targetProps = state.players[targetIdx].properties.values.flatMap { $0.properties }
+                let attackerProps = state.players[attackerIndex].properties.values.flatMap { $0.properties }
+                if let targetCard = targetProps.max(by: { $0.monetaryValue < $1.monetaryValue }),
+                   let attackerCard = attackerProps.min(by: { $0.monetaryValue < $1.monetaryValue }) {
+                    log.event("[\(state.players[attackerIndex].name)] Swap It auto-selects '\(targetCard.name)' ↔ '\(attackerCard.name)' with \(state.players[targetIdx].name)")
                     ActionResolver.executeSwapIt(
                         attackerIndex: attackerIndex,
                         targetIndex: targetIdx,
-                        attackerCardId: cpuCard.id,
-                        targetCardId: humanCard.id,
+                        attackerCardId: attackerCard.id,
+                        targetCardId: targetCard.id,
                         state: &state
                     )
                 } else {
                     log.warn("[\(state.players[attackerIndex].name)] Swap It — couldn't find cards to swap")
                 }
-                state.phase = .playing
-            } else if let myCardId = state.pendingSteal.cardId, let theirCardId = state.pendingSteal.secondaryCardId {
-                // Human attacker pre-selected both cards
-                log.event("[\(state.players[attackerIndex].name)] Swap It executes with pre-selected cards")
-                ActionResolver.executeSwapIt(attackerIndex: attackerIndex, targetIndex: targetIdx, attackerCardId: myCardId, targetCardId: theirCardId, state: &state)
-                state.pendingSteal = PendingStealPreSelection()
                 state.phase = .playing
             } else {
                 // Fallback: show picker

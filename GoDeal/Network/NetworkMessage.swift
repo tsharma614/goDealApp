@@ -12,6 +12,10 @@ enum NetworkMessage: Codable {
     case playerAction(PlayerAction)
     /// Host → all: game is starting now
     case gameStart
+    /// Host → guests: "want to play again with the same setup?"
+    case playAgainRequest
+    /// Guest → host: "yes, start the new game"
+    case playAgainConfirm
 }
 
 // MARK: - Player Action
@@ -43,4 +47,6 @@ enum PlayerAction: Codable {
         selectedColor: PropertyColor?,
         secondaryCardId: UUID?
     )
+    /// Player requests to start drawing cards at the beginning of their turn
+    case startTurn
 }

@@ -46,6 +46,11 @@ final class GameViewModel {
     var localPlayerIndex: Int = 0
     var isHost: Bool { networkSession == nil || networkSession?.role == .host }
 
+    /// Guest: set when host sends `.playAgainRequest` — triggers confirmation dialog in view
+    var showPlayAgainConfirmation = false
+    /// Host: set while waiting for guest to confirm play again
+    var isWaitingForPlayAgain = false
+
     /// Host-side: maps MCPeerID → player index in state.players
     private var peerPlayerIndexMap: [MCPeerID: Int] = [:]
 
@@ -186,13 +191,10 @@ final class GameViewModel {
 
     // MARK: - Human Actions
 
-    /// Draw cards at start of turn (solo only; multiplayer host auto-starts all turns)
+    /// Draw cards at start of turn. Routed through the host in multiplayer.
     func startTurn() {
         guard isHumanTurn, case .drawing = phase else { return }
-        guard networkSession == nil else { return }  // multiplayer: host auto-starts in handlePhaseChange
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-            engine.startTurn()
-        }
+        routeAction(.startTurn, callerIndex: localPlayerIndex)
     }
 
     /// Play a card from hand to bank
@@ -415,6 +417,9 @@ final class GameViewModel {
                 selectedColor: selectedColor,
                 secondaryCardId: secondaryCardId
             )
+
+        case .startTurn:
+            engine.startTurn()
         }
     }
 
@@ -506,6 +511,24 @@ final class GameViewModel {
         handlePhaseChange()
         broadcastState()
         triggerCPUIfNeeded()
+
+        // Auto-end guest's turn after 3 cards (mirrors autoEndTurnIfNeeded for local player)
+        if state.currentPlayerIndex == peerIndex,
+           case .playing = state.phase,
+           state.cardsPlayedThisTurn >= 3 {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 450_000_000)
+                guard let self,
+                      self.state.currentPlayerIndex == peerIndex,
+                      case .playing = self.state.phase,
+                      self.state.cardsPlayedThisTurn >= 3 else { return }
+                self.log.event("Auto-ending turn for \(self.state.players[peerIndex].name) (3/3 cards played)")
+                self.executeAction(.endTurn, callerIndex: peerIndex)
+                self.handlePhaseChange()
+                self.broadcastState()
+                self.triggerCPUIfNeeded()
+            }
+        }
     }
 
     // MARK: - Wire Session Callbacks
@@ -521,6 +544,12 @@ final class GameViewModel {
                 guard self.isHost else { return }
                 let idx = self.peerIndex(for: peer)
                 self.handleIncomingAction(action, from: idx)
+            case .playAgainRequest:
+                guard !self.isHost else { return }
+                self.showPlayAgainConfirmation = true
+            case .playAgainConfirm:
+                guard self.isHost else { return }
+                self.newMultiplayerGame()
             default:
                 break
             }
@@ -679,16 +708,8 @@ final class GameViewModel {
             // Solo: CPU handles discard in its turn; multiplayer: wait for player's device
 
         case .drawing:
-            if let session = networkSession {
-                // Multiplayer: host auto-starts all drawing phases so guests never see raw "Draw" state
-                Task { @MainActor [weak self] in
-                    try? await Task.sleep(nanoseconds: 200_000_000)
-                    guard let self, case .drawing = self.state.phase else { return }
-                    self.engine.startTurn()
-                    session.send(.gameState(self.engine.state))
-                }
-            } else if !isHumanTurn {
-                // Solo: immediately start CPU's turn
+            if networkSession == nil && !isHumanTurn {
+                // Solo: immediately start CPU's turn (CPU auto-draws; human uses Draw button)
                 triggerCPUIfNeeded()
                 stuckStateTask = Task { @MainActor [weak self] in
                     try? await Task.sleep(nanoseconds: 15_000_000_000)
@@ -697,6 +718,7 @@ final class GameViewModel {
                     self.triggerCPUIfNeeded()
                 }
             }
+            // Multiplayer: each player presses their own Draw button; no auto-draw
 
         case .playing:
             if networkSession == nil && !isHumanTurn {
@@ -800,6 +822,65 @@ final class GameViewModel {
         case .discarding(let p):            return "discarding player=\(state.players[safe: p]?.name ?? "?")"
         case .gameOver(let w):              return "gameOver winner=\(state.players[safe: w]?.name ?? "?")"
         }
+    }
+
+    // MARK: - Multiplayer Play Again
+
+    /// Host: broadcast a play-again request to all guests.
+    func requestPlayAgain() {
+        guard let session = networkSession else { return }
+        isWaitingForPlayAgain = true
+        session.send(.playAgainRequest)
+    }
+
+    /// Guest: accept the host's play-again request.
+    func confirmPlayAgain() {
+        guard let session = networkSession else { return }
+        showPlayAgainConfirmation = false
+        session.send(.playAgainConfirm)
+    }
+
+    /// Host: cancel waiting (e.g. guest never responded).
+    func cancelWaitingForPlayAgain() {
+        isWaitingForPlayAgain = false
+    }
+
+    /// Host: reinitialize the game with the same players / session. Broadcasts initial state.
+    private func newMultiplayerGame() {
+        guard let session = networkSession else { return }
+        let playerNames = state.players.map { $0.name }
+        let players = playerNames.map { Player(name: $0, isHuman: true) }
+
+        let deck = DeckBuilder.buildDeck()
+        var newState = GameState(players: players, deck: deck)
+        for playerIdx in 0..<newState.players.count {
+            let drawn = ActionResolver.drawCards(count: 5, from: &newState)
+            newState.players[playerIdx].addToHand(drawn)
+        }
+        newState.phase = .drawing
+
+        let newEngine = GameEngine(state: newState)
+        newEngine.onGameOver = { [weak self] wi in self?.handleGameOver(winnerIndex: wi) }
+        newEngine.onError = { [weak self] msg in self?.errorMessage = msg }
+
+        self.engine = newEngine
+        self.isWaitingForPlayAgain = false
+        self.showPlayAgainConfirmation = false
+        self.isShowingNoDealSheet = false
+        self.isShowingPaymentSheet = false
+        self.isShowingDiscardSheet = false
+        self.isShowingPropertyChoiceSheet = false
+        self.pendingActionCard = nil
+        self.errorMessage = nil
+        self.gameOverWinnerName = nil
+        self.pendingPaymentAmount = 0
+        self.pendingPaymentCreditorIndex = nil
+        self.pendingPaymentReason = nil
+        self.pendingNoDealAttackerName = ""
+        self.pendingNoDealCards = []
+        self.pendingNoDealActionDetail = ""
+
+        session.send(.gameState(engine.state))
     }
 
     // MARK: - New Game
