@@ -250,19 +250,22 @@ struct LobbyView: View {
     }
 
     /// Guest: set up onReceive to listen for playerAssignment + gameStart.
+    /// Uses [session] capture (reference type) so mutations to assignedPlayerIndex
+    /// are real, not on a discarded SwiftUI view-struct copy.
     /// Returns a dummy value so it can be used in the `let _ =` pattern in SwiftUI body.
     @discardableResult
     private func setupGuestReceiver(session: MultipeerSession) -> Bool {
         guard session.onReceive == nil else { return true }
-        session.onReceive = { [self] message, _ in
+        // Store the callback on the session (reference type) once, not on self (value type).
+        session.onGameStart = self.onStartGame
+        session.onReceive = { [session] message, _ in
             switch message {
             case .playerAssignment(let idx):
-                self.localPlayerIndex = idx
+                session.assignedPlayerIndex = idx
             case .gameStart:
-                if let s = self.session {
-                    s.stopBrowsing()
-                    self.onStartGame(s, self.localPlayerIndex)
-                }
+                let localIdx = session.assignedPlayerIndex
+                session.stopBrowsing()
+                session.onGameStart?(session, localIdx)
             default:
                 break
             }

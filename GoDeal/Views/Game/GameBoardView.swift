@@ -6,6 +6,7 @@ import SwiftUI
 
 struct GameBoardView: View {
     @Environment(GameViewModel.self) private var viewModel
+    @Environment(\.dismiss) private var dismiss
 
     @State private var selectedCardId: UUID? = nil
     @State private var showPlayAgainSetup = false
@@ -59,7 +60,7 @@ struct GameBoardView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             ForEach(viewModel.state.players.indices, id: \.self) { idx in
-                                if !viewModel.state.players[idx].isHuman {
+                                if idx != viewModel.localPlayerIndex {
                                     OpponentAreaView(
                                         player: viewModel.state.players[idx],
                                         isCurrentTurn: viewModel.state.currentPlayerIndex == idx
@@ -550,9 +551,15 @@ struct GameBoardView: View {
             viewModel.handlePhaseChange()
         }
         .onAppear {
-            // Start the game
+            // Start the game on first display.
+            // onChange(of: phase) only fires on changes, not the initial value,
+            // so we must manually kick off the first phase here.
             if case .drawing = viewModel.state.phase {
-                if viewModel.isHumanTurn {
+                if viewModel.networkSession != nil {
+                    // Multiplayer: handlePhaseChange auto-starts the drawing phase
+                    // (host calls engine.startTurn() after 200ms, then broadcasts)
+                    viewModel.handlePhaseChange()
+                } else if viewModel.isHumanTurn {
                     viewModel.startTurn()
                 } else {
                     viewModel.triggerCPUIfNeeded()
@@ -565,6 +572,17 @@ struct GameBoardView: View {
 
     private var topBar: some View {
         HStack {
+            // Gear / back-to-menu button — sits beside the logo
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 4)
+
             Text("Go! Deal!")
                 .font(.headline.weight(.black))
                 .foregroundStyle(

@@ -50,7 +50,7 @@ struct MainMenuView: View {
                     Spacer()
 
                     // Footer
-                    Text("Go! Deal! — A Monopoly-inspired card game")
+                    Text("Go! Deal! — A financial card game")
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(0.35))
                         .padding(.bottom, 20)
@@ -60,17 +60,6 @@ struct MainMenuView: View {
         .fullScreenCover(isPresented: $isShowingGame) {
             GameBoardView()
                 .environment(gameViewModel)
-                .overlay(alignment: .topLeading) {
-                    Button {
-                        isShowingGame = false
-                    } label: {
-                        Label("Menu", systemImage: "house.fill")
-                            .font(.caption.weight(.semibold))
-                            .padding(10)
-                            .background(.regularMaterial, in: Capsule())
-                    }
-                    .padding()
-                }
         }
         .sheet(isPresented: $isShowingSetup) {
             GameSetupView(onStart: { setup in

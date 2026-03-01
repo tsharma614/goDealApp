@@ -23,6 +23,11 @@ final class MultipeerSession: NSObject {
     var nearbyHosts: [MCPeerID] = []
     /// Called on main actor whenever a decoded message arrives.
     var onReceive: ((NetworkMessage, MCPeerID) -> Void)?
+    /// Guest: player index assigned by the host via .playerAssignment message.
+    var assignedPlayerIndex: Int = 0
+    /// Guest: called when .gameStart is received from host. Stored here so closure
+    /// captures the reference-type session (not a SwiftUI value-type view).
+    var onGameStart: ((MultipeerSession, Int) -> Void)?
 
     // MARK: - Private
 
