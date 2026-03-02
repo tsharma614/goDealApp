@@ -14,3 +14,6 @@ build/
 
 # Logs (runtime, not source)
 *.log
+
+# Screenshots / recordings (not source)
+screenshots/

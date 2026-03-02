@@ -31,8 +31,13 @@ struct GameBoardView: View {
     @State private var pendingRentIsWild: Bool = false   // true = wildRent → needs target after color pick
 
     // Pre-action steal flow: human picks the specific card BEFORE target is prompted
-    @State private var preActionCard: Card? = nil     // triggers pre-action PropertyPickerSheet
-    @State private var preActionTargetIdx: Int? = nil
+    // Both card + targetIdx bundled atomically so the sheet body never sees a partial state.
+    struct PreActionState: Identifiable {
+        let id = UUID()
+        let card: Card
+        let targetIdx: Int
+    }
+    @State private var preActionState: PreActionState? = nil
 
     // Wild reassignment state
     @State private var longPressedSet: PropertySet? = nil
@@ -59,7 +64,12 @@ struct GameBoardView: View {
                         .padding(.horizontal)
                         .padding(.vertical, 6)
 
-                    // Opponents
+                    // Opponents — single opponent fills full width; 2+ paginate at ~70% so
+                    // the edge of the next card peeks into view hinting scrollability.
+                    let opponentCount = viewModel.state.players.count - 1
+                    let opponentCardWidth: CGFloat = opponentCount > 1
+                        ? max(geo.size.width * 0.72, 260)
+                        : max(geo.size.width - 40, 280)
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             ForEach(viewModel.state.players.indices, id: \.self) { idx in
@@ -68,13 +78,13 @@ struct GameBoardView: View {
                                         player: viewModel.state.players[idx],
                                         isCurrentTurn: viewModel.state.currentPlayerIndex == idx
                                     )
-                                    .frame(width: max(geo.size.width - 40, 280))
+                                    .frame(width: opponentCardWidth)
                                 }
                             }
                         }
                         .padding(.horizontal)
                     }
-                    .frame(maxHeight: 200)
+                    .frame(maxHeight: opponentCount > 1 ? 220 : 200)
 
                     Divider().padding(.vertical, 4)
 
@@ -181,28 +191,25 @@ struct GameBoardView: View {
                     // BEFORE the card is played so they can cancel without losing the card.
                     if case .action(.quickGrab) = card.type {
                         pendingCard = nil
-                        preActionTargetIdx = targetIdx
                         Task { @MainActor in
                             try? await Task.sleep(nanoseconds: 350_000_000)
-                            preActionCard = card
+                            preActionState = PreActionState(card: card, targetIdx: targetIdx)
                         }
                         return
                     }
                     if case .action(.dealSnatcher) = card.type {
                         pendingCard = nil
-                        preActionTargetIdx = targetIdx
                         Task { @MainActor in
                             try? await Task.sleep(nanoseconds: 350_000_000)
-                            preActionCard = card
+                            preActionState = PreActionState(card: card, targetIdx: targetIdx)
                         }
                         return
                     }
                     if case .action(.swapIt) = card.type {
                         pendingCard = nil
-                        preActionTargetIdx = targetIdx
                         Task { @MainActor in
                             try? await Task.sleep(nanoseconds: 350_000_000)
-                            preActionCard = card
+                            preActionState = PreActionState(card: card, targetIdx: targetIdx)
                         }
                         return
                     }
@@ -331,10 +338,11 @@ struct GameBoardView: View {
             }
         }
         // Pre-action steal picker: human chooses specific card BEFORE the action card is played
-        .sheet(item: $preActionCard) { card in
-            if let targetIdx = preActionTargetIdx,
-               let humanPlayer = viewModel.humanPlayer,
-               targetIdx < viewModel.state.players.count {
+        .sheet(item: $preActionState) { state in
+            if let humanPlayer = viewModel.humanPlayer,
+               state.targetIdx < viewModel.state.players.count {
+                let card = state.card
+                let targetIdx = state.targetIdx
                 let targetPlayer = viewModel.state.players[targetIdx]
                 let purpose: PropertyChoicePurpose = {
                     if case .action(.quickGrab) = card.type { return .quickGrab(targetPlayerIndex: targetIdx) }
@@ -346,9 +354,7 @@ struct GameBoardView: View {
                     humanPlayer: humanPlayer,
                     targetPlayer: targetPlayer,
                     onResolve: { selectedPropId, selectedColor, secondaryPropId in
-                        preActionCard = nil
-                        preActionTargetIdx = nil
-
+                        preActionState = nil
                         viewModel.playActionWithPreSelection(
                             cardId: card.id,
                             targetPlayerIndex: targetIdx,
@@ -360,18 +366,16 @@ struct GameBoardView: View {
                     },
                     onCancel: {
                         // Card stays in hand — no action taken
-                        preActionCard = nil
-                        preActionTargetIdx = nil
+                        preActionState = nil
                         selectedCardId = nil
                     }
                 )
                 .presentationDetents([.large])
             } else {
-                // Guard failed (targetIdx nil or out of range) — log and auto-dismiss
+                // Guard failed — targetIdx out of range (shouldn't happen with atomic state)
                 Color.clear.onAppear {
-                    logger.error("Pre-action steal sheet blank — preActionTargetIdx=\(String(describing: preActionTargetIdx)) players=\(viewModel.state.players.count)")
-                    preActionCard = nil
-                    preActionTargetIdx = nil
+                    logger.error("Pre-action steal sheet blank — targetIdx=\(state.targetIdx) players=\(viewModel.state.players.count)")
+                    preActionState = nil
                 }
             }
         }
@@ -618,6 +622,12 @@ struct GameBoardView: View {
         } message: {
             Text("The host wants to play another round with the same players.")
         }
+        // Internet multiplayer: a player dropped mid-game
+        .alert("Player Disconnected", isPresented: $vm.playerDisconnectedAlert) {
+            Button("End Game") { onExit?() }
+        } message: {
+            Text("A player left the game.")
+        }
         .onChange(of: viewModel.state.phase) { _, _ in
             viewModel.handlePhaseChange()
         }
@@ -638,15 +648,24 @@ struct GameBoardView: View {
 
     private var topBar: some View {
         HStack {
-            // Gear / back-to-menu button — sits beside the logo
-            Button {
-                if let onExit { onExit() } else { dismiss() }
+            // Gear menu — exit + share diagnostics
+            Menu {
+                if let url = logger.logFileURL {
+                    ShareLink(item: url, subject: Text("Go! Deal! Diagnostics")) {
+                        Label("Share Log", systemImage: "square.and.arrow.up")
+                    }
+                    Divider()
+                }
+                Button(role: .destructive) {
+                    if let onExit { onExit() } else { dismiss() }
+                } label: {
+                    Label("Exit Game", systemImage: "xmark.circle")
+                }
             } label: {
                 Image(systemName: "gearshape.fill")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
-            .buttonStyle(.plain)
             .padding(.trailing, 4)
 
             Text("Go! Deal!")

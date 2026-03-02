@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import MultipeerConnectivity
+import GameKit
 
 // MARK: - Game Setup
 
@@ -42,7 +43,7 @@ final class GameViewModel {
 
     // MARK: - Multiplayer state
 
-    var networkSession: MultipeerSession? = nil
+    var networkSession: (any NetworkSession)? = nil
     var localPlayerIndex: Int = 0
     var isHost: Bool { networkSession == nil || networkSession?.role == .host }
 
@@ -50,9 +51,11 @@ final class GameViewModel {
     var showPlayAgainConfirmation = false
     /// Host: set while waiting for guest to confirm play again
     var isWaitingForPlayAgain = false
+    /// Set when a remote player drops mid-game (GameKit only); view shows a dismissal alert.
+    var playerDisconnectedAlert: Bool = false
 
-    /// Host-side: maps MCPeerID → player index in state.players
-    private var peerPlayerIndexMap: [MCPeerID: Int] = [:]
+    /// Host-side: maps stable peer ID → player index in state.players
+    private var peerPlayerIndexMap: [String: Int] = [:]
 
     // Stuck-state watchdog
     private var stuckStateTask: Task<Void, Never>?
@@ -155,9 +158,9 @@ final class GameViewModel {
         self.networkSession = session
         self.localPlayerIndex = localPlayerIndex
 
-        // Build peer → player-index map
+        // Build peer → player-index map (keyed by displayName, matching NetworkSession.send toPeerIDs)
         for (offset, peer) in guests.enumerated() {
-            peerPlayerIndexMap[peer] = offset + 1
+            peerPlayerIndexMap[peer.displayName] = offset + 1
         }
 
         engine.onGameOver = { [weak self] winnerIndex in
@@ -169,9 +172,9 @@ final class GameViewModel {
         wireSessionCallbacks()
     }
 
-    // MARK: - Multiplayer Guest Init
+    // MARK: - Multiplayer Guest Init (MC)
 
-    /// Guest device: creates a minimal placeholder engine. Real state arrives via broadcasts.
+    /// Guest device (local play): creates a minimal placeholder engine. Real state arrives via broadcasts.
     init(session: MultipeerSession, localPlayerIndex: Int) {
         let placeholder = Player(name: session.myPeerID.displayName, isHuman: true)
         let emptyState = GameState(players: [placeholder], deck: [])
@@ -186,6 +189,66 @@ final class GameViewModel {
         engine.onError = { [weak self] message in
             self?.errorMessage = message
         }
+        wireSessionCallbacks()
+    }
+
+    // MARK: - GameKit Host Init
+
+    /// Host init for internet play. Creates full game state from GKMatch players.
+    init(setup: GameSetup, session: GameKitSession, localPlayerIndex: Int = 0) {
+        let setupName = setup.humanPlayerName.trimmingCharacters(in: .whitespaces)
+        let hostName = !setupName.isEmpty ? setupName : GKLocalPlayer.local.displayName
+
+        var players: [Player] = [Player(name: hostName.isEmpty ? "You" : hostName, isHuman: true)]
+        var map: [String: Int] = [:]
+        for (offset, (peerID, name)) in zip(session.connectedPeerIDs, session.connectedPeerNames).enumerated() {
+            players.append(Player(name: name, isHuman: true))
+            map[peerID] = offset + 1
+        }
+
+        let deck = DeckBuilder.buildDeck()
+        var state = GameState(players: players, deck: deck)
+        for i in 0..<state.players.count {
+            let drawn = ActionResolver.drawCards(count: 5, from: &state)
+            state.players[i].addToHand(drawn)
+        }
+        state.phase = .drawing
+
+        let engine = GameEngine(state: state)
+        self.engine = engine
+        self.networkSession = session
+        self.localPlayerIndex = localPlayerIndex
+        self.peerPlayerIndexMap = map
+
+        engine.onGameOver = { [weak self] wi in self?.handleGameOver(winnerIndex: wi) }
+        engine.onError = { [weak self] msg in self?.errorMessage = msg }
+        wireSessionCallbacks()
+
+        // Broadcast initial state to all guests
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            for (offset, peerID) in session.connectedPeerIDs.enumerated() {
+                session.send(.playerAssignment(localPlayerIndex: offset + 1), toPeerIDs: [peerID])
+            }
+            session.send(.gameState(self.engine.state))
+            session.send(.gameStart)
+        }
+    }
+
+    // MARK: - GameKit Guest Init
+
+    /// Guest init for internet play. Placeholder state; real state arrives via host broadcasts.
+    init(session: GameKitSession, localPlayerIndex: Int) {
+        let name = GKLocalPlayer.local.displayName
+        let placeholder = Player(name: name.isEmpty ? "Player" : name, isHuman: true)
+        let emptyState = GameState(players: [placeholder], deck: [])
+        let engine = GameEngine(state: emptyState)
+        self.engine = engine
+        self.networkSession = session
+        self.localPlayerIndex = localPlayerIndex
+
+        engine.onGameOver = { [weak self] wi in self?.handleGameOver(winnerIndex: wi) }
+        engine.onError = { [weak self] msg in self?.errorMessage = msg }
         wireSessionCallbacks()
     }
 
@@ -508,7 +571,8 @@ final class GameViewModel {
             guard state.currentPlayerIndex == peerIndex else { return }
         }
         executeAction(action, callerIndex: peerIndex)
-        handlePhaseChange()
+        // NOTE: handlePhaseChange() is NOT called here — onChange(of: viewModel.state.phase)
+        // in GameBoardView fires automatically when phase changes, avoiding double calls.
         broadcastState()
         triggerCPUIfNeeded()
 
@@ -524,7 +588,7 @@ final class GameViewModel {
                       self.state.cardsPlayedThisTurn >= 3 else { return }
                 self.log.event("Auto-ending turn for \(self.state.players[peerIndex].name) (3/3 cards played)")
                 self.executeAction(.endTurn, callerIndex: peerIndex)
-                self.handlePhaseChange()
+                // onChange fires automatically for the phase change; no handlePhaseChange() here
                 self.broadcastState()
                 self.triggerCPUIfNeeded()
             }
@@ -534,7 +598,7 @@ final class GameViewModel {
     // MARK: - Wire Session Callbacks
 
     private func wireSessionCallbacks() {
-        networkSession?.onReceive = { [weak self] message, peer in
+        networkSession?.onReceive = { [weak self] message, peerID in
             guard let self else { return }
             switch message {
             case .gameState(let gs):
@@ -542,7 +606,7 @@ final class GameViewModel {
                 self.applyNetworkState(gs)
             case .playerAction(let action):
                 guard self.isHost else { return }
-                let idx = self.peerIndex(for: peer)
+                let idx = self.peerIndex(for: peerID)
                 self.handleIncomingAction(action, from: idx)
             case .playAgainRequest:
                 guard !self.isHost else { return }
@@ -554,10 +618,14 @@ final class GameViewModel {
                 break
             }
         }
+
+        networkSession?.onDisconnect = { [weak self] in
+            self?.playerDisconnectedAlert = true
+        }
     }
 
-    private func peerIndex(for peer: MCPeerID) -> Int {
-        peerPlayerIndexMap[peer] ?? -1
+    private func peerIndex(for peerID: String) -> Int {
+        peerPlayerIndexMap[peerID] ?? -1
     }
 
     // MARK: - CPU Turn Trigger
@@ -743,6 +811,18 @@ final class GameViewModel {
     // MARK: - Private
 
     private func computeNoDealDetail(actionCard: Card, attackerIdx: Int, targetIdx: Int) -> String {
+        // Rent cards (Collect Dues / Rent Blitz!) now go through the NoDeal chain too.
+        if case .rent = actionCard.type {
+            let amount = state.pendingRentAmount
+            let colorName = state.pendingRentColor?.displayName ?? "?"
+            return "You will owe $\(amount)M rent (\(colorName))"
+        }
+        if case .wildRent = actionCard.type {
+            let amount = state.pendingRentAmount
+            let colorName = state.pendingRentColor?.displayName ?? "?"
+            return "You will owe $\(amount)M rent (\(colorName))"
+        }
+
         guard case .action(let type) = actionCard.type else { return "" }
         let attacker = state.players[attackerIdx]
         let target = state.players[targetIdx]
@@ -899,6 +979,7 @@ final class GameViewModel {
         self.networkSession = nil
         self.localPlayerIndex = 0
         self.peerPlayerIndexMap = [:]
+        self.playerDisconnectedAlert = false
         self.isShowingNoDealSheet = false
         self.isShowingPaymentSheet = false
         self.isShowingDiscardSheet = false

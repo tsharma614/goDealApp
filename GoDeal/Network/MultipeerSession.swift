@@ -1,33 +1,32 @@
 import Foundation
 import MultipeerConnectivity
 
-// MARK: - Role
-
-enum MCRole { case host, guest }
-
 // MARK: - Multipeer Session
 
-/// Wraps MCSession + advertiser/browser for host-authoritative multiplayer.
+/// Wraps MCSession + advertiser/browser for host-authoritative local multiplayer.
 /// Host advertises; guests browse and invite the host.
+/// Conforms to NetworkSession so GameViewModel works with both local and internet sessions.
 @Observable
 @MainActor
-final class MultipeerSession: NSObject {
+final class MultipeerSession: NSObject, NetworkSession {
+
+    // MARK: - NetworkSession conformance
+
+    let role: MCRole
+    var connectedPeerIDs: [String] { connectedPeers.map { $0.displayName } }
+    var connectedPeerNames: [String] { connectedPeers.map { $0.displayName } }
+    var assignedPlayerIndex: Int = 0
+    var gameStartReceived: Bool = false
+    var onReceive: ((NetworkMessage, String) -> Void)?
+    var onDisconnect: (() -> Void)?
 
     // MARK: - Public state (read by views)
 
-    let role: MCRole
     let myPeerID: MCPeerID
     /// Peers currently connected in the session (both host & guest update this).
     var connectedPeers: [MCPeerID] = []
     /// Nearby hosts visible to a guest browser.
     var nearbyHosts: [MCPeerID] = []
-    /// Called on main actor whenever a decoded message arrives.
-    var onReceive: ((NetworkMessage, MCPeerID) -> Void)?
-    /// Guest: player index assigned by the host via .playerAssignment message.
-    var assignedPlayerIndex: Int = 0
-    /// Guest: flipped to true when .gameStart is received from host.
-    /// LobbyView observes this via @Observable and calls onStartGame in a proper SwiftUI context.
-    var gameStartReceived: Bool = false
 
     // MARK: - Private
 
@@ -88,10 +87,23 @@ final class MultipeerSession: NSObject {
         browser?.invitePeer(peer, to: session, withContext: nil, timeout: 30)
     }
 
-    // MARK: - Send
+    // MARK: - Send (NetworkSession protocol)
+
+    /// Send a message to all connected peers.
+    func send(_ message: NetworkMessage) {
+        send(message, to: nil)
+    }
+
+    /// Send a message to specific peers by their display-name IDs.
+    func send(_ message: NetworkMessage, toPeerIDs: [String]) {
+        let targets = session.connectedPeers.filter { toPeerIDs.contains($0.displayName) }
+        send(message, to: targets)
+    }
+
+    // MARK: - Send (internal helper)
 
     /// Encode and send a message. `peers` defaults to all connected peers.
-    func send(_ message: NetworkMessage, to peers: [MCPeerID]? = nil) {
+    private func send(_ message: NetworkMessage, to peers: [MCPeerID]? = nil) {
         let targets = peers ?? session.connectedPeers
         guard !targets.isEmpty else { return }
         do {
@@ -126,6 +138,7 @@ extension MultipeerSession: MCSessionDelegate {
                 }
             case .notConnected:
                 self.connectedPeers.removeAll { $0 == peerID }
+                self.onDisconnect?()
             default:
                 break
             }
@@ -138,7 +151,7 @@ extension MultipeerSession: MCSessionDelegate {
         Task { @MainActor in
             do {
                 let message = try self.decoder.decode(NetworkMessage.self, from: data)
-                self.onReceive?(message, peerID)
+                self.onReceive?(message, peerID.displayName)
             } catch {
                 print("[MultipeerSession] decode error: \(error)")
             }
@@ -166,13 +179,14 @@ extension MultipeerSession: MCSessionDelegate {
 
 extension MultipeerSession: MCNearbyServiceAdvertiserDelegate {
 
-    /// Host auto-accepts all invitations.
+    /// Host auto-accepts invitations up to 3 guests (4 players total).
     nonisolated func advertiser(_ advertiser: MCNearbyServiceAdvertiser,
                                 didReceiveInvitationFromPeer peerID: MCPeerID,
                                 withContext context: Data?,
                                 invitationHandler: @escaping (Bool, MCSession?) -> Void) {
         Task { @MainActor in
-            invitationHandler(true, self.session)
+            let accept = self.connectedPeers.count < 3
+            invitationHandler(accept, accept ? self.session : nil)
         }
     }
 

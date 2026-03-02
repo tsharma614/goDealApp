@@ -6,7 +6,9 @@ struct MainMenuView: View {
     @State private var isShowingGame = false
     @State private var isShowingSetup = false
     @State private var isShowingLobby = false
+    @State private var isShowingOnlineLobby = false
     @State private var isShowingCustomization = false
+    @State private var isShowingTutorial = false
     @State private var gameViewModel = GameViewModel()
     @State private var customizationViewModel = CustomizationViewModel()
 
@@ -52,8 +54,16 @@ struct MainMenuView: View {
                             isShowingLobby = true
                         }
 
+                        menuButton(title: "Play Online", icon: "globe", color: .cyan) {
+                            isShowingOnlineLobby = true
+                        }
+
                         menuButton(title: "Customize Cards", icon: "paintbrush.fill", color: .purple) {
                             isShowingCustomization = true
+                        }
+
+                        menuButton(title: "How to Play", icon: "questionmark.circle.fill", color: .orange) {
+                            isShowingTutorial = true
                         }
                     }
                     .padding(.horizontal, 40)
@@ -92,6 +102,20 @@ struct MainMenuView: View {
                 }
                 isShowingGame = true
                 isShowingLobby = false
+            }
+        }
+        .sheet(isPresented: $isShowingTutorial) {
+            TutorialView()
+        }
+        .sheet(isPresented: $isShowingOnlineLobby) {
+            GameKitLobbyView { session, localIdx in
+                if session.role == .host {
+                    gameViewModel = GameViewModel(setup: GameSetup(), session: session, localPlayerIndex: localIdx)
+                } else {
+                    gameViewModel = GameViewModel(session: session, localPlayerIndex: localIdx)
+                }
+                isShowingGame = true
+                isShowingOnlineLobby = false
             }
         }
     }

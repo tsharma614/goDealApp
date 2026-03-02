@@ -128,24 +128,71 @@ final class GameEngine {
     /// Called when the target plays a No Deal! during awaitingResponse.
     /// Card must be a No Deal! card in target's hand.
     func playNoDeal(cardId: UUID, playerIndex: Int) {
-        guard case .awaitingResponse(let targetIdx, _, _) = state.phase,
+        guard case .awaitingResponse(let targetIdx, let actionCard, let attackerIndex) = state.phase,
               targetIdx == playerIndex else { return }
         guard let card = state.players[playerIndex].removeFromHand(id: cardId),
               card.isNoDeal else { return }
 
         state.discardPile.append(card)
-        // Action is cancelled — return to playing phase for the attacker
-        state.phase = .playing
+        log.event("[\(state.players[playerIndex].name)] played No Deal! against '\(actionCard.name)'")
+
+        // For multi-target actions NoDeal only protects THIS player — advance the queue so
+        // remaining players still get their own response window and pay if they don't block.
+        switch actionCard.type {
+        case .action(.bigSpender), .rent, .wildRent:
+            // Skip payment for this player; continue to next in queue (or process payments).
+            state.advanceResponseQueue(actionCard: actionCard, attackerIndex: attackerIndex)
+        default:
+            // Single-target action: cancel the entire action.
+            state.pendingResponsePlayerIndices = []
+            state.pendingRentAmount = 0
+            state.pendingRentColor = nil
+            state.phase = .playing
+        }
     }
 
     /// Called when the target does NOT play No Deal! (accepts the action)
     func acceptAction() {
         guard case .awaitingResponse(let targetIdx, let actionCard, let attackerIndex) = state.phase else { return }
-        log.event("[\(state.players[targetIdx].name)] accepted '\(actionCard.name)' from \(state.players[attackerIndex].name) — executing effect")
-        // Execute the action
-        executeQueuedAction(actionCard: actionCard, attackerIndex: attackerIndex)
-        if case .awaitingResponse = state.phase {} else {
+        log.event("[\(state.players[targetIdx].name)] accepted '\(actionCard.name)' from \(state.players[attackerIndex].name)")
+
+        switch actionCard.type {
+        case .action(.bigSpender):
+            // Queue payment for this player and advance to the next response window.
+            if state.players[targetIdx].isHuman {
+                state.pendingPayments.append(
+                    PendingPayment(debtorIndex: targetIdx, creditorIndex: attackerIndex,
+                                   amount: 2, reason: .bigSpender)
+                )
+            } else {
+                PaymentResolver.resolvePayment(state: &state, debtorIndex: targetIdx,
+                                               creditorIndex: attackerIndex, amount: 2)
+            }
+            state.advanceResponseQueue(actionCard: actionCard, attackerIndex: attackerIndex)
             checkWinAndAdvance()
+
+        case .rent, .wildRent:
+            // Queue rent payment for this player and advance to the next response window.
+            let amount = state.pendingRentAmount
+            let reason: PaymentReason = .rent(state.pendingRentColor ?? .blueChip)
+            if state.players[targetIdx].isHuman {
+                state.pendingPayments.append(
+                    PendingPayment(debtorIndex: targetIdx, creditorIndex: attackerIndex,
+                                   amount: amount, reason: reason)
+                )
+            } else {
+                PaymentResolver.resolvePayment(state: &state, debtorIndex: targetIdx,
+                                               creditorIndex: attackerIndex, amount: amount)
+            }
+            state.advanceResponseQueue(actionCard: actionCard, attackerIndex: attackerIndex)
+            checkWinAndAdvance()
+
+        default:
+            // Single-target action card: execute immediately.
+            executeQueuedAction(actionCard: actionCard, attackerIndex: attackerIndex)
+            if case .awaitingResponse = state.phase {} else {
+                checkWinAndAdvance()
+            }
         }
     }
 
@@ -270,45 +317,6 @@ final class GameEngine {
                     debtorIndex: targetIdx,
                     state: &state
                 )
-                state.phase = .playing
-            }
-
-        case .bigSpender:
-            // targetIdx is the player who had the No Deal! window.
-            // After resolving their payment, auto-charge any remaining players
-            // (they forfeited their No Deal! opportunity since only one response is shown).
-            let remainingTargets = state.otherPlayerIndices().filter { $0 != targetIdx }
-
-            if state.players[targetIdx].isHuman {
-                // Human gets a payment sheet; CPU remainders paid immediately
-                for cpuIdx in remainingTargets where !state.players[cpuIdx].isHuman {
-                    log.event("[\(state.players[attackerIndex].name)] Big Spender — auto-charging \(state.players[cpuIdx].name) $2M")
-                    PaymentResolver.resolvePayment(state: &state, debtorIndex: cpuIdx, creditorIndex: attackerIndex, amount: 2)
-                }
-                state.phase = .awaitingPayment(
-                    debtorIndex: targetIdx,
-                    creditorIndex: attackerIndex,
-                    amount: 2,
-                    reason: .bigSpender
-                )
-            } else {
-                PaymentResolver.resolvePayment(
-                    state: &state,
-                    debtorIndex: targetIdx,
-                    creditorIndex: attackerIndex,
-                    amount: 2
-                )
-                // Charge remaining players automatically
-                for otherIdx in remainingTargets {
-                    if state.players[otherIdx].isHuman {
-                        // Human remainder gets a payment sheet — but phase is already set to playing below;
-                        // log a warn as this multi-human path needs future work
-                        log.warn("[\(state.players[attackerIndex].name)] Big Spender — skipping human player \(state.players[otherIdx].name) (multi-human not yet supported)")
-                    } else {
-                        log.event("[\(state.players[attackerIndex].name)] Big Spender — auto-charging \(state.players[otherIdx].name) $2M")
-                        PaymentResolver.resolvePayment(state: &state, debtorIndex: otherIdx, creditorIndex: attackerIndex, amount: 2)
-                    }
-                }
                 state.phase = .playing
             }
 
@@ -484,7 +492,7 @@ final class GameEngine {
             }
         }
 
-        state.phase = .playing
+        state.processNextPayment()
         checkWinAndAdvance()
     }
 
@@ -498,7 +506,7 @@ final class GameEngine {
             creditorIndex: creditorIndex,
             amount: amount
         )
-        state.phase = .playing
+        state.processNextPayment()
         checkWinAndAdvance()
     }
 

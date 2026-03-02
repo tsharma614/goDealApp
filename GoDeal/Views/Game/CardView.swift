@@ -61,6 +61,8 @@ struct CardView: View {
     private func defaultCardContent(for c: Card) -> some View {
         if case .wildProperty(let colors) = c.type {
             wildPropertyContent(c: c, colors: colors)
+        } else if case .rent(let colors) = c.type, colors.count >= 2 {
+            rentDualContent(c: c, colors: colors)
         } else {
             VStack(spacing: 2) {
                 HStack {
@@ -157,6 +159,58 @@ struct CardView: View {
         }
     }
 
+    // MARK: - Dual Rent Card (top/bottom color split)
+
+    @ViewBuilder
+    private func rentDualContent(c: Card, colors: [PropertyColor]) -> some View {
+        VStack(spacing: 0) {
+            // "DUES" banner at top — mirrors "WILD" on wild property cards
+            Text("DUES")
+                .font(.system(size: size.fontSize, weight: .black, design: .rounded))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.6), radius: 1)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 2)
+                .background(.black.opacity(0.35))
+
+            Spacer()
+
+            // Dollar icon + two property color circles
+            VStack(spacing: 4) {
+                Image(systemName: "dollarsign.circle.fill")
+                    .font(.system(size: size.height * 0.2))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.5), radius: 2)
+                HStack(spacing: 6) {
+                    ForEach(Array(colors.prefix(2).enumerated()), id: \.offset) { _, color in
+                        Circle()
+                            .fill(color.uiColor)
+                            .frame(width: size.width * 0.22, height: size.width * 0.22)
+                            .overlay(Circle().stroke(.white.opacity(0.75), lineWidth: 1))
+                    }
+                }
+            }
+
+            Spacer()
+
+            // Card name + monetary value at bottom — mirrors wild property card layout
+            VStack(spacing: 1) {
+                Text(c.name)
+                    .font(.system(size: size.fontSize, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.5), radius: 1)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .padding(.horizontal, 4)
+                Text("$\(c.monetaryValue)M")
+                    .font(.system(size: size.fontSize - 1, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .shadow(color: .black.opacity(0.5), radius: 1)
+            }
+            .padding(.bottom, 3)
+        }
+    }
+
     // MARK: - Card Back
 
     private var cardBack: some View {
@@ -218,10 +272,16 @@ struct CardView: View {
             case .towerBlock:    return LinearGradient(colors: [.indigo.opacity(0.9), .indigo.opacity(0.55)], startPoint: .top, endPoint: .bottom)
             }
         case .rent(let colors):
-            if colors.count == 1 {
+            if colors.count >= 2 {
+                // Hard top/bottom split — mirrors the left/right split on wild property cards
+                return LinearGradient(stops: [
+                    .init(color: colors[0].uiColor, location: 0.0),
+                    .init(color: colors[0].uiColor, location: 0.5),
+                    .init(color: colors[1].uiColor, location: 0.5),
+                    .init(color: colors[1].uiColor, location: 1.0)
+                ], startPoint: .top, endPoint: .bottom)
+            } else if colors.count == 1 {
                 return LinearGradient(colors: [colors[0].uiColor.opacity(0.9), colors[0].uiColor.opacity(0.6)], startPoint: .top, endPoint: .bottom)
-            } else if colors.count >= 2 {
-                return LinearGradient(colors: [colors[0].uiColor.opacity(0.85), colors[1].uiColor.opacity(0.85)], startPoint: .topLeading, endPoint: .bottomTrailing)
             }
             return LinearGradient(colors: [.orange.opacity(0.7), .red.opacity(0.5)], startPoint: .top, endPoint: .bottom)
         case .wildRent:

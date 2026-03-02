@@ -243,23 +243,15 @@ enum ActionResolver {
     // MARK: - Big Spender (all players pay $2M)
 
     private static func resolveBigSpender(playerIndex: Int, state: inout GameState, card: Card) {
-        // Big Spender charges all — requires No Deal! response from each
-        // For simplicity: trigger awaitingResponse for first non-attacker player
-        // Full chain handled by game engine
+        // Every non-attacker gets their own NoDeal window in turn order.
+        // The first target enters awaitingResponse immediately; the rest go into the queue.
+        let targets = state.otherPlayerIndices()
+        guard !targets.isEmpty else { return }
+        state.pendingResponsePlayerIndices = Array(targets.dropFirst())
         state.phase = .awaitingResponse(
-            targetPlayerIndex: state.nextPlayerIndex(after: playerIndex),
+            targetPlayerIndex: targets[0],
             actionCard: card,
             attackerIndex: playerIndex
-        )
-    }
-
-    static func executeBigSpender(creditorIndex: Int, state: inout GameState) {
-        let others = state.otherPlayerIndices()
-        PaymentResolver.resolveRentToAll(
-            state: &state,
-            payerIndices: others,
-            creditorIndex: creditorIndex,
-            amountEach: 2
         )
     }
 
@@ -352,48 +344,34 @@ enum ActionResolver {
         }
         GameLogger.shared.event("[\(state.players[playerIndex].name)] charges $\(rentAmount)M rent for \(chosenColor?.displayName ?? "?") ×\(multiplier)")
 
-        // Determine targets
+        // Store rent info so the NoDeal response chain can access it later.
+        state.pendingRentAmount = rentAmount
+        state.pendingRentColor = chosenColor
+
+        // Every targeted player gets their own NoDeal window before paying.
         switch card.type {
         case .rent:
-            // Charge all other players. CPU pays immediately; human gets payment choice.
+            // Collect Dues — targets all other players.
             let targets = state.otherPlayerIndices()
-            let cpuTargets = targets.filter { !state.players[$0].isHuman }
-            let humanTargets = targets.filter { state.players[$0].isHuman }
-
-            for cpuIdx in cpuTargets {
-                PaymentResolver.resolvePayment(
-                    state: &state,
-                    debtorIndex: cpuIdx,
-                    creditorIndex: playerIndex,
-                    amount: rentAmount
-                )
-            }
-            if let humanIdx = humanTargets.first {
-                state.phase = .awaitingPayment(
-                    debtorIndex: humanIdx,
-                    creditorIndex: playerIndex,
-                    amount: rentAmount,
-                    reason: .rent(chosenColor ?? .blueChip)
-                )
-            }
+            guard !targets.isEmpty else { return }
+            state.pendingResponsePlayerIndices = Array(targets.dropFirst())
+            state.phase = .awaitingResponse(
+                targetPlayerIndex: targets[0],
+                actionCard: card,
+                attackerIndex: playerIndex
+            )
+            GameLogger.shared.event("[\(state.players[playerIndex].name)] Collect Dues — queuing NoDeal window for \(targets.count) player(s) at $\(rentAmount)M each")
 
         case .wildRent:
+            // Rent Blitz! — single target chosen by attacker.
             guard let targetIdx = targetPlayerIndex else { return }
-            if state.players[targetIdx].isHuman {
-                state.phase = .awaitingPayment(
-                    debtorIndex: targetIdx,
-                    creditorIndex: playerIndex,
-                    amount: rentAmount,
-                    reason: .rent(chosenColor ?? .blueChip)
-                )
-            } else {
-                PaymentResolver.resolvePayment(
-                    state: &state,
-                    debtorIndex: targetIdx,
-                    creditorIndex: playerIndex,
-                    amount: rentAmount
-                )
-            }
+            state.pendingResponsePlayerIndices = []
+            state.phase = .awaitingResponse(
+                targetPlayerIndex: targetIdx,
+                actionCard: card,
+                attackerIndex: playerIndex
+            )
+            GameLogger.shared.event("[\(state.players[playerIndex].name)] Rent Blitz! — NoDeal window for \(state.players[targetIdx].name) at $\(rentAmount)M")
 
         default: break
         }

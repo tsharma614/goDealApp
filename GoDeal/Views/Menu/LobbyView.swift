@@ -128,6 +128,9 @@ struct LobbyView: View {
                 Text("Your device: \(displayName)")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.5))
+                Text("Up to 3 guests can join (4 players max)")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.35))
             }
 
             if session.connectedPeers.isEmpty {
@@ -136,9 +139,27 @@ struct LobbyView: View {
                     .font(.subheadline)
             } else {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Connected (\(session.connectedPeers.count)):")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.6))
+                    HStack {
+                        Text("Players (\(session.connectedPeers.count + 1)/4):")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.6))
+                        Spacer()
+                        if session.connectedPeers.count >= 3 {
+                            Text("Full")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    // Host row
+                    HStack(spacing: 8) {
+                        Circle().fill(.blue).frame(width: 8, height: 8)
+                        Text("\(displayName) (you)")
+                            .foregroundStyle(.white)
+                        Spacer()
+                        Text("host")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.4))
+                    }
                     ForEach(session.connectedPeers, id: \.self) { peer in
                         HStack(spacing: 8) {
                             Circle().fill(.green).frame(width: 8, height: 8)
@@ -154,7 +175,8 @@ struct LobbyView: View {
             Button {
                 startHostGame(session: session)
             } label: {
-                Text("Start Game")
+                let count = session.connectedPeers.count + 1
+                Text(count >= 2 ? "Start Game (\(count) players)" : "Start Game")
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding()
@@ -262,7 +284,7 @@ struct LobbyView: View {
         for (offset, peer) in guests.enumerated() {
             let idx = offset + 1
             print("[MP-Host] sending playerAssignment idx=\(idx) to \(peer.displayName)")
-            session.send(.playerAssignment(localPlayerIndex: idx), to: [peer])
+            session.send(.playerAssignment(localPlayerIndex: idx), toPeerIDs: [peer.displayName])
         }
         session.send(.gameStart)
         session.stopAdvertising()

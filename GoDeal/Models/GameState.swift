@@ -58,6 +58,17 @@ struct PendingDoubleUp: Codable {
     var rentCardPlayed: Bool = false
 }
 
+// MARK: - Pending Payment
+
+/// One entry in the payment queue — processed sequentially so every human debtor gets
+/// their own PaymentSheet rather than having all-but-first silently skipped.
+struct PendingPayment: Codable, Equatable {
+    var debtorIndex: Int
+    var creditorIndex: Int
+    var amount: Int
+    var reason: PaymentReason
+}
+
 // MARK: - Pending Steal Pre-Selection
 // When a human plays quickGrab/dealSnatcher/swapIt, they pick the target
 // property BEFORE the card is played so they can cancel freely. These fields
@@ -80,7 +91,16 @@ struct GameState: Codable {
     var phase: GamePhase
     var pendingDoubleUp: PendingDoubleUp
     var pendingSteal: PendingStealPreSelection
+    var pendingPayments: [PendingPayment]
     var turnNumber: Int
+    /// Ordered list of player indices who still need their own NoDeal window for a multi-target
+    /// action (Big Spender, Collect Dues rent). The first player in the queue is shown next;
+    /// when it's empty, payments are processed.
+    var pendingResponsePlayerIndices: [Int] = []
+    /// Rent amount stored for the duration of a multi-player NoDeal response chain.
+    var pendingRentAmount: Int = 0
+    /// Rent color stored alongside pendingRentAmount for the NoDeal chain.
+    var pendingRentColor: PropertyColor? = nil
 
     // Convenience
     var currentPlayer: Player {
@@ -99,7 +119,41 @@ struct GameState: Codable {
         self.phase = .drawing
         self.pendingDoubleUp = PendingDoubleUp()
         self.pendingSteal = PendingStealPreSelection()
+        self.pendingPayments = []
         self.turnNumber = 1
+    }
+
+    /// Advance the NoDeal response queue to the next player, or process payments when done.
+    /// Called after each player accepts or blocks with NoDeal in a multi-target action.
+    mutating func advanceResponseQueue(actionCard: Card, attackerIndex: Int) {
+        if let nextTarget = pendingResponsePlayerIndices.first {
+            pendingResponsePlayerIndices.removeFirst()
+            phase = .awaitingResponse(
+                targetPlayerIndex: nextTarget,
+                actionCard: actionCard,
+                attackerIndex: attackerIndex
+            )
+        } else {
+            pendingRentAmount = 0
+            pendingRentColor = nil
+            processNextPayment()
+        }
+    }
+
+    /// Pop the next pending payment into the active phase, or return to .playing when the
+    /// queue is empty. Called after each payment resolves (human or auto-resolve).
+    mutating func processNextPayment() {
+        guard let next = pendingPayments.first else {
+            phase = .playing
+            return
+        }
+        pendingPayments.removeFirst()
+        phase = .awaitingPayment(
+            debtorIndex: next.debtorIndex,
+            creditorIndex: next.creditorIndex,
+            amount: next.amount,
+            reason: next.reason
+        )
     }
 
     // Next player index (wraps around)

@@ -475,20 +475,30 @@ final class GameEngineTests: XCTestCase {
         engine.state.players[1].bank = [makeCard(type: .money(2), value: 2)]
         engine.state.players[2].bank = [makeCard(type: .money(2), value: 2)]
 
-        // CPU (player 1) plays Big Spender targeting CPU (player 2)
-        // In our current model, player 2 gets the awaitingResponse window, player 1 is charged automatically
+        // Simulate Big Spender played by player 0:
+        // Player 1 is first in queue, player 2 is in pendingResponsePlayerIndices.
+        let bigSpenderCard = makeCard(type: .action(.bigSpender))
+        engine.state.pendingResponsePlayerIndices = [2]   // player 2 will get next window
         engine.state.phase = .awaitingResponse(
-            targetPlayerIndex: 2,   // player 2 got the NoDeal window
-            actionCard: makeCard(type: .action(.bigSpender)),
-            attackerIndex: 0        // player 0 is attacker
+            targetPlayerIndex: 1,
+            actionCard: bigSpenderCard,
+            attackerIndex: 0
         )
         engine.state.currentPlayerIndex = 0
 
-        let p0BankBefore = engine.state.players[0].bankTotal
-        engine.acceptAction()  // player 2 accepts
+        // Player 1 (CPU) accepts — should be charged and queue advances to player 2
+        engine.acceptAction()
+        XCTAssertLessThan(engine.state.players[1].bankTotal, 2, "Player 1 should be charged after accepting")
 
-        // Both players 1 and 2 should have been charged $2M
-        // (player 2 is the primary target, player 1 is the "remaining" target)
-        XCTAssertLessThan(engine.state.players[2].bankTotal, 2, "Primary target (player 2) should be charged")
+        // Phase should now be awaitingResponse for player 2
+        if case .awaitingResponse(let targetIdx, _, _) = engine.state.phase {
+            XCTAssertEqual(targetIdx, 2, "Queue should advance to player 2")
+        } else {
+            XCTFail("Expected awaitingResponse for player 2, got \(engine.state.phase)")
+        }
+
+        // Player 2 (CPU) accepts — should also be charged
+        engine.acceptAction()
+        XCTAssertLessThan(engine.state.players[2].bankTotal, 2, "Player 2 should be charged after accepting")
     }
 }

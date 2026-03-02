@@ -120,26 +120,27 @@ final class CPUPlayer {
         await sleep(1.0)
 
         let log = GameLogger.shared
+        let name = engine.state.players[playerIndex].name
         switch purpose {
         case .quickGrab(let targetIdx):
             let stealable = engine.state.players[targetIdx].properties.values
                 .filter { !$0.isComplete }
                 .flatMap { $0.properties }
             if let card = stealable.max(by: { $0.monetaryValue < $1.monetaryValue }) {
-                log.event("[CPU quickGrab choice] stealing '\(card.name)' from \(engine.state.players[targetIdx].name)")
+                log.event("[\(name) quickGrab] stealing '\(card.name)' from \(engine.state.players[targetIdx].name)")
                 engine.resolvePropertyChoice(purpose: purpose, selectedCardId: card.id)
             } else {
-                log.warn("[CPU quickGrab choice] no stealable properties found — passing")
+                log.warn("[\(name) quickGrab] no stealable properties found — passing")
                 engine.resolvePropertyChoice(purpose: purpose)
             }
 
         case .dealSnatcher(let targetIdx):
             let completeSets = engine.state.players[targetIdx].properties.filter { $0.value.isComplete }
             if let (color, _) = completeSets.max(by: { $0.value.currentRent < $1.value.currentRent }) {
-                log.event("[CPU dealSnatcher choice] stealing \(color.displayName) set from \(engine.state.players[targetIdx].name)")
+                log.event("[\(name) dealSnatcher] stealing \(color.displayName) set from \(engine.state.players[targetIdx].name)")
                 engine.resolvePropertyChoice(purpose: purpose, selectedColor: color)
             } else {
-                log.warn("[CPU dealSnatcher choice] no complete sets found — passing")
+                log.warn("[\(name) dealSnatcher] no complete sets found — passing")
                 engine.resolvePropertyChoice(purpose: purpose)
             }
 
@@ -148,15 +149,15 @@ final class CPUPlayer {
             let myProps = engine.state.players[playerIndex].properties.values.flatMap { $0.properties }
             if let theirCard = targetProps.max(by: { $0.monetaryValue < $1.monetaryValue }),
                let myCard = myProps.min(by: { $0.monetaryValue < $1.monetaryValue }) {
-                log.event("[CPU swapIt choice] giving '\(myCard.name)', taking '\(theirCard.name)' from \(engine.state.players[targetIdx].name)")
+                log.event("[\(name) swapIt] giving '\(myCard.name)', taking '\(theirCard.name)' from \(engine.state.players[targetIdx].name)")
                 engine.resolvePropertyChoice(purpose: purpose, selectedCardId: myCard.id, secondaryCardId: theirCard.id)
             } else {
-                log.warn("[CPU swapIt choice] couldn't find swap candidates — passing")
+                log.warn("[\(name) swapIt] couldn't find swap candidates — passing")
                 engine.resolvePropertyChoice(purpose: purpose)
             }
 
         default:
-            log.event("[CPU propertyChoice] unhandled purpose=\(purpose) — passing")
+            log.event("[\(name) propertyChoice] unhandled purpose=\(purpose) — passing")
             engine.resolvePropertyChoice(purpose: purpose)
         }
     }
@@ -175,10 +176,10 @@ final class CPUPlayer {
             actionCard: actionCard,
             difficulty: difficulty
         ) {
-            log.event("[CPU player=\(playerIndex)] plays No Deal! against '\(actionCard.name)'")
+            log.event("[\(engine.state.players[playerIndex].name)] plays No Deal! against '\(actionCard.name)'")
             engine.playNoDeal(cardId: noDealCard.id, playerIndex: playerIndex)
         } else {
-            log.event("[CPU player=\(playerIndex)] accepts '\(actionCard.name)'")
+            log.event("[\(engine.state.players[playerIndex].name)] accepts '\(actionCard.name)'")
             engine.acceptAction()
         }
     }
@@ -187,23 +188,24 @@ final class CPUPlayer {
 
     private func executeDecision(_ decision: AIDecision, in engine: GameEngine) {
         let log = GameLogger.shared
+        let name = engine.state.players[playerIndex].name
         switch decision.destination {
         case .bank:
-            log.event("[CPU] plays '\(decision.card.name)' → bank ($\(decision.card.monetaryValue)M)")
+            log.event("[\(name)] plays '\(decision.card.name)' → bank ($\(decision.card.monetaryValue)M)")
             engine.playCard(cardId: decision.card.id, as: .bank)
 
         case .property(let color):
             if case .wildProperty = decision.card.type, let wildColor = decision.wildColor {
-                log.event("[CPU] assigns wild '\(decision.card.name)' → \(wildColor.displayName)")
+                log.event("[\(name)] assigns wild '\(decision.card.name)' → \(wildColor.displayName)")
                 engine.assignWildColor(cardId: decision.card.id, color: wildColor)
             } else {
-                log.event("[CPU] plays '\(decision.card.name)' → \(color.displayName)")
+                log.event("[\(name)] plays '\(decision.card.name)' → \(color.displayName)")
                 engine.playCard(cardId: decision.card.id, as: .property(color))
             }
 
         case .action:
             let targetName = decision.targetPlayerIndex.map { engine.state.players[$0].name } ?? "all"
-            log.event("[CPU] plays action '\(decision.card.name)' → target=\(targetName)")
+            log.event("[\(name)] plays action '\(decision.card.name)' → target=\(targetName)")
             engine.playCard(
                 cardId: decision.card.id,
                 as: .action,
@@ -214,7 +216,7 @@ final class CPUPlayer {
         case .rent(let color):
             let targetName = decision.targetPlayerIndex.map { engine.state.players[$0].name } ?? "all"
             let colorName = color?.displayName ?? "wild"
-            log.event("[CPU] plays rent '\(decision.card.name)' color=\(colorName) → \(targetName)")
+            log.event("[\(name)] plays rent '\(decision.card.name)' color=\(colorName) → \(targetName)")
             engine.playCard(
                 cardId: decision.card.id,
                 as: .rent(color),
@@ -251,7 +253,7 @@ final class CPUPlayer {
 
             let hand = engine.state.players[playerIndex].hand
             if let lowestCard = hand.min(by: { $0.monetaryValue < $1.monetaryValue }) {
-                GameLogger.shared.event("[CPU] discards '\(lowestCard.name)' ($\(lowestCard.monetaryValue)M) (hand: \(hand.count) → \(hand.count - 1))")
+                GameLogger.shared.event("[\(engine.state.players[playerIndex].name)] discards '\(lowestCard.name)' ($\(lowestCard.monetaryValue)M) (hand: \(hand.count) → \(hand.count - 1))")
                 engine.discard(cardId: lowestCard.id)
             }
             await sleep(0.6)

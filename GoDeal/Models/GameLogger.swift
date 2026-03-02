@@ -50,7 +50,7 @@ final class GameLogger {
 
     // MARK: - File logging
 
-    private var logFileURL: URL? {
+    var logFileURL: URL? {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
             .appendingPathComponent("godeal_game.log")
     }
