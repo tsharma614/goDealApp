@@ -94,7 +94,7 @@ final class DeckBuilderTests: XCTestCase {
         XCTAssertEqual(stats.actionCounts[.bigSpender], 3)
         XCTAssertEqual(stats.actionCounts[.doubleUp], 2)
         XCTAssertEqual(stats.actionCounts[.cornerStore], 3)
-        XCTAssertEqual(stats.actionCounts[.towerBlock], 3)
+        XCTAssertEqual(stats.actionCounts[.apartmentBuilding], 3)
     }
 
     // MARK: - Card Integrity

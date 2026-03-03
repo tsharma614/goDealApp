@@ -59,6 +59,7 @@
 		AA200000000000000000048 /* GameKitLobbyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000048 /* GameKitLobbyView.swift */; };
 		AA200000000000000000049 /* GameKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA10000000000000000004A /* GameKit.framework */; };
 		AA20000000000000000004C /* TutorialView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA10000000000000000004C /* TutorialView.swift */; };
+		AA20000000000000000004D /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA10000000000000000004D /* Haptics.swift */; };
 		BFC12DAC2F55FBF800CB1D1D /* GO!.png in Resources */ = {isa = PBXBuildFile; fileRef = BFC12DAB2F55FBF800CB1D1D /* GO!.png */; };
 /* End PBXBuildFile section */
 
@@ -127,6 +128,7 @@
 		AA10000000000000000004A /* GameKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = GameKit.framework; path = System/Library/Frameworks/GameKit.framework; sourceTree = SDKROOT; };
 		AA10000000000000000004B /* GoDeal.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GoDeal.entitlements; sourceTree = "<group>"; };
 		AA10000000000000000004C /* TutorialView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorialView.swift; sourceTree = "<group>"; };
+		AA10000000000000000004D /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
 		AA1000000000000000000F0 /* GoDeal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GoDeal.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA1000000000000000000F1 /* GoDealTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GoDealTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		BFC12DAB2F55FBF800CB1D1D /* GO!.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "GO!.png"; sourceTree = "<group>"; };
@@ -201,6 +203,7 @@
 				AA100000000000000000008 /* DeckBuilder.swift */,
 				AA100000000000000000009 /* PropertyNameStore.swift */,
 				AA10000000000000000002A /* Extensions.swift */,
+				AA10000000000000000004D /* Haptics.swift */,
 				AA100000000000000000035 /* GameLogger.swift */,
 			);
 			path = Models;
@@ -460,6 +463,7 @@
 				AA20000000000000000001E /* DiscardSheet.swift in Sources */,
 				AA200000000000000000033 /* PropertyPickerSheet.swift in Sources */,
 				AA200000000000000000034 /* CardDetailSheet.swift in Sources */,
+				AA20000000000000000004D /* Haptics.swift in Sources */,
 				AA200000000000000000035 /* GameLogger.swift in Sources */,
 				AA200000000000000000036 /* GameLogSheet.swift in Sources */,
 				AA20000000000000000001F /* CardCustomizationView.swift in Sources */,
@@ -624,7 +628,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = GoDeal/GoDeal.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = U9782HGY2C;
 				INFOPLIST_FILE = GoDeal/App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
@@ -648,7 +652,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = GoDeal/GoDeal.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = U9782HGY2C;
 				INFOPLIST_FILE = GoDeal/App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;

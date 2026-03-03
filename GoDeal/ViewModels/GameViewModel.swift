@@ -35,6 +35,8 @@ final class GameViewModel {
     var pendingNoDealAttackerName: String = ""
     var pendingNoDealCards: [Card] = []
     var pendingNoDealActionDetail: String = ""
+    /// True when the user explicitly tapped Accept or No Deal! — prevents onDismiss from double-firing
+    var noDealInteracted: Bool = false
 
     // Payment choice state (set when awaitingPayment with human debtor)
     var pendingPaymentAmount: Int = 0
@@ -81,7 +83,8 @@ final class GameViewModel {
 
     private static let cpuNamePool = [
         "Jonathan", "Nikhil", "Trusha", "Som", "Meha", "Ishan",
-        "Vikram", "Amit", "Tejal", "Akshay", "Tanmay", "Ambi"
+        "Vikram", "Amit", "Tejal", "Akshay", "Tanmay", "Ambi",
+        "Sameer", "Zahra", "Vansh", "Swayam"
     ]
 
     // MARK: - Solo Init
@@ -170,6 +173,13 @@ final class GameViewModel {
             self?.errorMessage = message
         }
         wireSessionCallbacks()
+
+        // Broadcast initial state so guests render the full game board immediately
+        // rather than showing a placeholder 1-player state. Mirrors GameKit host init.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.networkSession?.send(.gameState(self.engine.state))
+        }
     }
 
     // MARK: - Multiplayer Guest Init (MC)
@@ -336,6 +346,7 @@ final class GameViewModel {
 
     /// Human plays No Deal! as a response
     func playNoDeal(cardId: UUID) {
+        noDealInteracted = true
         log.event("Human played No Deal! — cardId=\(cardId)")
         routeAction(.playNoDeal(cardId: cardId), callerIndex: localPlayerIndex)
         isShowingNoDealSheet = false
@@ -344,6 +355,7 @@ final class GameViewModel {
 
     /// Human accepts an action (does not play No Deal!)
     func acceptAction() {
+        noDealInteracted = true
         log.event("Human accepted action — card=\(pendingActionCard?.name ?? "?")")
         routeAction(.acceptAction, callerIndex: localPlayerIndex)
         isShowingNoDealSheet = false
@@ -368,7 +380,10 @@ final class GameViewModel {
         pendingPaymentAmount = 0
         pendingPaymentCreditorIndex = nil
         pendingPaymentReason = nil
-        if isHost { triggerCPUIfNeeded() }
+        if isHost {
+            triggerCPUIfNeeded()
+            autoEndTurnIfNeeded()
+        }
     }
 
     /// Human cancels discard to go back and play more cards (only when < 3 cards played)
@@ -508,12 +523,23 @@ final class GameViewModel {
         switch state.phase {
         case .awaitingResponse(let targetIdx, let actionCard, let attackerIdx):
             if targetIdx == humanIdx {
-                pendingActionCard = actionCard
-                pendingNoDealAttackerName = state.players[attackerIdx].name
-                pendingNoDealCards = state.players[targetIdx].hand.filter { $0.isNoDeal }
-                pendingNoDealActionDetail = computeNoDealDetail(
-                    actionCard: actionCard, attackerIdx: attackerIdx, targetIdx: targetIdx)
-                isShowingNoDealSheet = true
+                let capturedActionCard = actionCard
+                let capturedAttackerIdx = attackerIdx
+                let capturedTargetIdx = targetIdx
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: 350_000_000)
+                    guard let self,
+                          case .awaitingResponse(let t, _, _) = self.state.phase,
+                          t == capturedTargetIdx else { return }
+                    self.pendingActionCard = capturedActionCard
+                    self.pendingNoDealAttackerName = self.state.players[capturedAttackerIdx].name
+                    self.pendingNoDealCards = self.state.players[capturedTargetIdx].hand.filter { $0.isNoDeal }
+                    self.pendingNoDealActionDetail = self.computeNoDealDetail(
+                        actionCard: capturedActionCard, attackerIdx: capturedAttackerIdx, targetIdx: capturedTargetIdx)
+                    self.noDealInteracted = false
+                    Haptics.notification(.warning)
+                    self.isShowingNoDealSheet = true
+                }
             }
 
         case .awaitingPayment(let debtorIdx, let creditorIdx, let amount, let reason):
@@ -530,6 +556,7 @@ final class GameViewModel {
                         guard let self,
                               case .awaitingPayment(let d, _, _, _) = self.state.phase,
                               d == humanIdx else { return }
+                        Haptics.notification(.warning)
                         self.isShowingPaymentSheet = true
                     }
                 }
@@ -638,6 +665,14 @@ final class GameViewModel {
         guard let cpu = cpuPlayers.first(where: { $0.playerIndex == cpuIdx }) else { return }
 
         Task {
+            // Yield once before any CPU work so the Task body doesn't run synchronously
+            // inside a SwiftUI onChange callback. Without this yield, resumeTurn() can
+            // play a card synchronously within the render cycle, changing the phase before
+            // SwiftUI has a chance to observe (and fire onChange for) the previous phase.
+            // This caused the awaitingResponse phase to be skipped when a CPU played
+            // Collect Dues, freezing the NoDeal/payment chain.
+            await Task.yield()
+
             switch state.phase {
             case .drawing:
                 await cpu.executeTurn()
@@ -652,6 +687,11 @@ final class GameViewModel {
                        state.currentPlayerIndex == cpuIdx {
                         await cpu.resumeTurn()
                     }
+                }
+            case .awaitingResponse(let targetIdx, let actionCard, _):
+                // Rescue stuck state: make the target CPU respond
+                if let targetCPU = cpuPlayers.first(where: { $0.playerIndex == targetIdx }) {
+                    await targetCPU.respondToAction(actionCard: actionCard, engine: engine)
                 }
             default:
                 break
@@ -702,18 +742,44 @@ final class GameViewModel {
         case .awaitingResponse(let targetIdx, let actionCard, let attackerIdx):
             if targetIdx == humanIdx {
                 // Snapshot context before showing sheet so the body doesn't rely on live phase
-                pendingActionCard = actionCard
-                pendingNoDealAttackerName = state.players[attackerIdx].name
-                pendingNoDealCards = state.players[humanIdx].hand.filter { $0.isNoDeal }
-                pendingNoDealActionDetail = computeNoDealDetail(actionCard: actionCard, attackerIdx: attackerIdx, targetIdx: humanIdx)
-                log.event("Showing NoDeal sheet — attacker=\(pendingNoDealAttackerName) card=\(actionCard.name)")
-                isShowingNoDealSheet = true
+                let capturedActionCard = actionCard
+                let capturedAttackerIdx = attackerIdx
+                let capturedTargetIdx = targetIdx
+                // Delay to allow the previous sheet to fully dismiss before presenting a new one.
+                // Without this, rapid-fire awaitingResponse chains can cause SwiftUI to force-dismiss
+                // the new sheet immediately, triggering onDismiss → acceptAction() silently.
+                log.event("Scheduling NoDeal sheet — attacker=\(state.players[attackerIdx].name) card=\(actionCard.name)")
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: 350_000_000)
+                    guard let self,
+                          case .awaitingResponse(let t, _, _) = self.state.phase,
+                          t == capturedTargetIdx else { return }
+                    self.pendingActionCard = capturedActionCard
+                    self.pendingNoDealAttackerName = self.state.players[capturedAttackerIdx].name
+                    self.pendingNoDealCards = self.state.players[capturedTargetIdx].hand.filter { $0.isNoDeal }
+                    self.pendingNoDealActionDetail = self.computeNoDealDetail(
+                        actionCard: capturedActionCard,
+                        attackerIdx: capturedAttackerIdx,
+                        targetIdx: capturedTargetIdx
+                    )
+                    self.noDealInteracted = false
+                    self.log.event("Showing NoDeal sheet — attacker=\(self.pendingNoDealAttackerName) card=\(capturedActionCard.name)")
+                    Haptics.notification(.warning)
+                    self.isShowingNoDealSheet = true
+                }
             } else if networkSession == nil {
                 // Solo: CPU handles response automatically
                 if let cpu = cpuPlayers.first(where: { $0.playerIndex == targetIdx }) {
                     Task { @MainActor in
                         await cpu.respondToAction(actionCard: actionCard, engine: engine)
                     }
+                }
+                // Watchdog: if CPU response gets stuck (race condition), rescue after 15s
+                stuckStateTask = Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: 15_000_000_000)
+                    guard !Task.isCancelled, let self else { return }
+                    self.log.warn("Stuck state detected — awaitingResponse target=\(self.state.players[targetIdx].name) — force-rescuing")
+                    self.triggerCPUIfNeeded()
                 }
             }
             // Multiplayer non-local target: wait for that device to send response
@@ -741,6 +807,7 @@ final class GameViewModel {
                         self.pendingPaymentAmount = capturedAmount
                         self.pendingPaymentCreditorIndex = capturedCreditorIdx
                         self.pendingPaymentReason = capturedReason
+                        Haptics.notification(.warning)
                         self.isShowingPaymentSheet = true
                     }
                 }
@@ -776,7 +843,9 @@ final class GameViewModel {
             // Solo: CPU handles discard in its turn; multiplayer: wait for player's device
 
         case .drawing:
-            if networkSession == nil && !isHumanTurn {
+            if isHumanTurn {
+                Haptics.impact(.light)  // subtle cue: it's your turn
+            } else if networkSession == nil {
                 // Solo: immediately start CPU's turn (CPU auto-draws; human uses Draw button)
                 triggerCPUIfNeeded()
                 stuckStateTask = Task { @MainActor [weak self] in
@@ -798,6 +867,10 @@ final class GameViewModel {
                     self.log.warn("Stuck state detected (\(self.state.currentPlayer.name) playing) — auto-triggering CPU")
                     self.triggerCPUIfNeeded()
                 }
+            } else if isHumanTurn {
+                // Human turn returned to .playing (e.g. from awaitingResponse/awaitingPayment)
+                // — auto-end if 3 cards already played
+                autoEndTurnIfNeeded()
             }
 
         case .awaitingWildColorChoice:
@@ -869,11 +942,63 @@ final class GameViewModel {
     private func handleGameOver(winnerIndex: Int) {
         guard state.players.indices.contains(winnerIndex) else { return }
         gameOverWinnerName = state.players[winnerIndex].name
+        Haptics.notification(winnerIndex == localPlayerIndex ? .success : .error)
         log.event("Game over — winner: \(state.players[winnerIndex].name)")
     }
 
     private func clearError() {
         errorMessage = nil
+    }
+
+    /// Card count per color for the local player — used by GameBoardView to detect property losses.
+    var humanPropertyCardCounts: [PropertyColor: Int] {
+        guard state.players.indices.contains(localPlayerIndex) else { return [:] }
+        return Dictionary(uniqueKeysWithValues:
+            state.players[localPlayerIndex].properties.map { ($0.key, $0.value.properties.count) }
+        )
+    }
+
+    /// Returns false when a card is structurally unplayable on the current turn
+    /// (e.g. rent card for colors you don't own, Deal Snatcher when no opponent has sets).
+    /// Used to dim cards in the hand — does NOT replace the engine's authoritative guard.
+    func isCardLegallyPlayable(_ card: Card) -> Bool {
+        guard state.players.indices.contains(localPlayerIndex) else { return false }
+        let human = state.players[localPlayerIndex]
+        let opponents = state.players.enumerated()
+            .filter { $0.offset != localPlayerIndex }
+            .map { $0.element }
+
+        switch card.type {
+        case .rent(let colors):
+            // Playable only if the human owns at least one property in a matching color
+            return colors.contains { human.properties[$0] != nil }
+
+        case .wildRent:
+            // Playable only if the human owns any property at all
+            return !human.properties.isEmpty
+
+        case .action(let type):
+            switch type {
+            case .dealSnatcher:
+                // Needs an opponent with at least one complete set to steal
+                return opponents.contains { $0.completedSets > 0 }
+            case .quickGrab:
+                // Needs an opponent with a property in an incomplete set
+                return opponents.contains { opp in
+                    opp.properties.values.contains { !$0.isComplete && !$0.properties.isEmpty }
+                }
+            case .swapIt:
+                // Needs human to have a property AND an opponent to have a property
+                let humanHasAny = !human.properties.isEmpty
+                let oppHasAny = opponents.contains { !$0.properties.isEmpty }
+                return humanHasAny && oppHasAny
+            default:
+                return true
+            }
+
+        default:
+            return true
+        }
     }
 
     /// Auto-ends the human's turn after 3 cards are played, with a short delay for animation.

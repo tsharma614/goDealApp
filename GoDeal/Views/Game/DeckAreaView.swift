@@ -9,7 +9,7 @@ struct DeckAreaView: View {
     var recentActivity: [String] = []
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .center, spacing: 10) {
             // Activity feed (left, takes remaining width)
             activityFeed
 

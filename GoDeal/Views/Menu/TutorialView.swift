@@ -82,7 +82,7 @@ struct TutorialView: View {
                               description: "Trade one of your properties for any one of another player's.")
                     actionRow(name: "Corner Store", icon: "building.2.fill", color: Color(UIColor.brown),
                               description: "Add to a complete set to boost rent by $3M.")
-                    actionRow(name: "Tower Block", icon: "building.columns.fill", color: .indigo,
+                    actionRow(name: "Apartment Building", icon: "building.columns.fill", color: .indigo,
                               description: "Add after a Corner Store to boost rent by an additional $4M.")
 
                     Divider().padding(.horizontal)

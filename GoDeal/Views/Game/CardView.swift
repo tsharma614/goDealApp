@@ -269,7 +269,7 @@ struct CardView: View {
             case .dealForward:   return LinearGradient(colors: [Color(UIColor.systemBlue).opacity(0.75), .cyan.opacity(0.55)], startPoint: .top, endPoint: .bottom)
             case .doubleUp:      return LinearGradient(colors: [.purple.opacity(0.85), .purple.opacity(0.5)], startPoint: .top, endPoint: .bottom)
             case .cornerStore:   return LinearGradient(colors: [Color(UIColor.brown).opacity(0.85), Color(UIColor.brown).opacity(0.55)], startPoint: .top, endPoint: .bottom)
-            case .towerBlock:    return LinearGradient(colors: [.indigo.opacity(0.9), .indigo.opacity(0.55)], startPoint: .top, endPoint: .bottom)
+            case .apartmentBuilding:    return LinearGradient(colors: [.indigo.opacity(0.9), .indigo.opacity(0.55)], startPoint: .top, endPoint: .bottom)
             }
         case .rent(let colors):
             if colors.count >= 2 {
@@ -303,7 +303,7 @@ struct CardView: View {
             }
         case .action(let type):
             switch type {
-            case .noDeal, .dealSnatcher, .quickGrab, .swapIt, .doubleUp, .cornerStore, .towerBlock:
+            case .noDeal, .dealSnatcher, .quickGrab, .swapIt, .doubleUp, .cornerStore, .apartmentBuilding:
                 return .white
             default: return .primary
             }
@@ -361,7 +361,7 @@ struct CardView: View {
         case .dealForward:   return "arrow.forward.circle.fill"
         case .doubleUp:      return "multiply.circle.fill"
         case .cornerStore:   return "building.2.fill"
-        case .towerBlock:    return "building.columns.fill"
+        case .apartmentBuilding:    return "building.columns.fill"
         }
     }
 }

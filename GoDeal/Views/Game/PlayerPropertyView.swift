@@ -6,6 +6,7 @@ import SwiftUI
 struct PlayerPropertyView: View {
     let player: Player
     var isInteractive: Bool = false
+    var flashingColors: Set<PropertyColor> = []
     var onPropertyTap: ((Card, PropertyColor) -> Void)? = nil
     var onLongPress: ((PropertySet) -> Void)? = nil
 
@@ -34,6 +35,7 @@ struct PlayerPropertyView: View {
                 ForEach(sortedSets, id: \.color) { set in
                     PropertySetView(
                         set: set,
+                        isFlashing: flashingColors.contains(set.color),
                         isInteractive: isInteractive,
                         onPropertyTap: onPropertyTap,
                         onLongPress: onLongPress
@@ -66,6 +68,7 @@ struct PlayerPropertyView: View {
 
 struct PropertySetView: View {
     let set: PropertySet
+    var isFlashing: Bool = false
     var isInteractive: Bool = false
     var onPropertyTap: ((Card, PropertyColor) -> Void)? = nil
     var onLongPress: ((PropertySet) -> Void)? = nil
@@ -102,7 +105,7 @@ struct PropertySetView: View {
             .frame(height: 84)
 
             // Improvements
-            if set.hasCornerStore || set.hasTowerBlock {
+            if set.hasCornerStore || set.hasApartmentBuilding {
                 improvementBadges
             }
 
@@ -113,6 +116,15 @@ struct PropertySetView: View {
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(set.isComplete ? set.color.uiColor.opacity(0.18) : Color.clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.red.opacity(isFlashing ? 0.85 : 0), lineWidth: 2)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.red.opacity(isFlashing ? 0.18 : 0))
+                .allowsHitTesting(false)
         )
         .onLongPressGesture {
             if isInteractive { onLongPress?(set) }
@@ -151,7 +163,7 @@ struct PropertySetView: View {
                     .padding(.vertical, 2)
                     .background(.orange.opacity(0.3), in: Capsule())
             }
-            if set.hasTowerBlock {
+            if set.hasApartmentBuilding {
                 Text("TB")
                     .font(.system(size: 8, weight: .bold))
                     .padding(.horizontal, 4)

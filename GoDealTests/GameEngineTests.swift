@@ -417,7 +417,7 @@ final class GameEngineTests: XCTestCase {
         // Player 0 has a complete Blue Chip set with Corner Store + Tower Block
         var blueSet = makeCompleteSet(color: .blueChip)
         blueSet.hasCornerStore = true
-        blueSet.hasTowerBlock = true
+        blueSet.hasApartmentBuilding = true
         state.players[0].properties[.blueChip] = blueSet
         state.players[0].bank = []  // no cash — must pay with property
 
@@ -433,7 +433,7 @@ final class GameEngineTests: XCTestCase {
         if let remainingSet = state.players[0].properties[.blueChip] {
             if !remainingSet.isComplete {
                 XCTAssertFalse(remainingSet.hasCornerStore, "Corner Store must be cleared from incomplete set")
-                XCTAssertFalse(remainingSet.hasTowerBlock, "Tower Block must be cleared from incomplete set")
+                XCTAssertFalse(remainingSet.hasApartmentBuilding, "Tower Block must be cleared from incomplete set")
             }
         }
     }

@@ -18,7 +18,7 @@ import Foundation
 //     - Deal Forward: 3
 //     - Double Up: 2
 //     - Corner Store: 3
-//     - Tower Block: 2
+//     - Apartment Building: 2
 //   Total action: 28 ... hmm let me recount
 //
 // Standard Monopoly Deal: 110 cards
@@ -187,27 +187,27 @@ struct DeckBuilder {
 
     // MARK: - Action Cards (38 total)
     // dealSnatcher×3, noDeal×3, quickGrab×3, swapIt×3, collectNow×3,
-    // bigSpender×3, dealForward×3, doubleUp×2, cornerStore×3, towerBlock×2
+    // bigSpender×3, dealForward×3, doubleUp×2, cornerStore×3, apartmentBuilding×2
     // Total: 3+3+3+3+3+3+3+2+3+2 = 28 ... we need 38.
     // Let me recalculate to reach 110:
     // Money(20) + Properties(28) + Wilds(11) + Rent(13) = 72
     // Action needed: 110 - 72 = 38
     // Adjustment: dealSnatcher×2, noDeal×3, quickGrab×3, swapIt×3, collectNow×3,
-    //             bigSpender×3, dealForward×3, doubleUp×2, cornerStore×3, towerBlock×2
+    //             bigSpender×3, dealForward×3, doubleUp×2, cornerStore×3, apartmentBuilding×2
     //             + extra 11: add more of some types
     // Actually let's match original MD counts:
     // Pass Go×10 equivalent = dealForward×10? No.
     // Standard: PassGo×10, DealBreaker×2, SlyDeal×3, ForcedDeal×3, DebtCollector×3, Birthday×3,
     //           House×3, Hotel×2, DoubleRent×2, JustSayNo×3 = 34... but we have more.
     // Let me use: dealForward×10, dealSnatcher×2, noDeal×3, quickGrab×3, swapIt×3,
-    //             collectNow×3, bigSpender×3, doubleUp×2, cornerStore×3, towerBlock×2 = 34
+    //             collectNow×3, bigSpender×3, doubleUp×2, cornerStore×3, apartmentBuilding×2 = 34
     // Hmm still short. Let me just match the total exactly.
     // Money20 + Prop28 + Wild11 + Rent13 = 72, need 38 actions.
     // Use: dealForward×10, dealSnatcher×3, noDeal×3, quickGrab×3, swapIt×3,
-    //      collectNow×3, bigSpender×3, doubleUp×2, cornerStore×3, towerBlock×3 = 36
+    //      collectNow×3, bigSpender×3, doubleUp×2, cornerStore×3, apartmentBuilding×3 = 36
     // +2 more: noDeal has 3, add 2 more noDeal = 5? Or add 2 more quickGrab.
     // Let's go: dealForward×10, dealSnatcher×3, noDeal×5, quickGrab×3, swapIt×3,
-    //           collectNow×3, bigSpender×3, doubleUp×2, cornerStore×3, towerBlock×3 = 38
+    //           collectNow×3, bigSpender×3, doubleUp×2, cornerStore×3, apartmentBuilding×3 = 38
     private static func buildActionCards() -> [Card] {
         var cards: [Card] = []
 
@@ -221,14 +221,14 @@ struct DeckBuilder {
             (.bigSpender,    3),
             (.doubleUp,      2),
             (.cornerStore,   3),
-            (.towerBlock,    3),
+            (.apartmentBuilding,    3),
         ]
         // Total: 10+3+5+3+3+3+3+2+3+3 = 38 ✓
 
         for (action, count) in actionSpecs {
             let monetaryValue: Int = {
                 switch action {
-                case .cornerStore, .towerBlock: return 3
+                case .cornerStore, .apartmentBuilding: return 3
                 case .dealSnatcher: return 5
                 default: return 2
                 }

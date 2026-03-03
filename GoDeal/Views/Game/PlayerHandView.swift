@@ -7,6 +7,7 @@ struct PlayerHandView: View {
     let cards: [Card]
     let canPlay: Bool
     var selectedCardId: UUID?
+    var isCardPlayable: ((Card) -> Bool)? = nil
     let onCardTap: (Card) -> Void
     let onCardPlay: (Card) -> Void
 
@@ -25,7 +26,6 @@ struct PlayerHandView: View {
             }
             .padding(.horizontal)
 
-            // Hint sits above the cards so lifted card is never covered
             if let selectedId = selectedCardId,
                let selected = cards.first(where: { $0.id == selectedId }) {
                 cardActionHint(for: selected)
@@ -36,34 +36,37 @@ struct PlayerHandView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: -16) {
                     ForEach(cards) { card in
+                        let isSelected = selectedCardId == card.id
+                        let cardPlayable = canPlay && (isCardPlayable?(card) ?? true)
                         CardView(
                             card: card,
-                            isSelected: selectedCardId == card.id,
-                            isPlayable: canPlay,
+                            isSelected: isSelected,
+                            isPlayable: cardPlayable,
                             size: .normal
                         )
-                        .offset(y: selectedCardId == card.id ? -12 : 0)
-                        .zIndex(selectedCardId == card.id ? 10 : 0)
+                        .offset(y: isSelected ? -12 : 0)
                         .transition(.asymmetric(
-                            insertion: .move(edge: .trailing).combined(with: .opacity),
-                            removal: .scale(scale: 0.8).combined(with: .opacity)
+                            insertion: .opacity,
+                            removal: .offset(y: -40).combined(with: .opacity)
                         ))
                         .onTapGesture {
-                            if selectedCardId == card.id {
+                            if isSelected {
+                                Haptics.impact(.medium)
                                 onCardPlay(card)
                             } else {
+                                Haptics.selection()
                                 onCardTap(card)
                             }
-                        }
-                        .onLongPressGesture {
-                            detailCard = card
                         }
                         .padding(.leading, 8)
                     }
                 }
+                .animation(.spring(response: 0.3, dampingFraction: 0.8), value: cards.map { $0.id })
                 .padding(.horizontal)
                 .padding(.vertical, 8)
             }
+            // Lock to intrinsic card height so extra space goes to spacers around activity section
+            .fixedSize(horizontal: false, vertical: true)
         }
         .sheet(item: $detailCard) { card in
             CardDetailSheet(card: card)
@@ -71,6 +74,8 @@ struct PlayerHandView: View {
         }
         .animation(.spring(response: 0.2), value: selectedCardId)
     }
+
+    // MARK: - Card Hint
 
     @ViewBuilder
     private func cardActionHint(for card: Card) -> some View {

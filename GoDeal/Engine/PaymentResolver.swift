@@ -130,7 +130,7 @@ enum PaymentResolver {
                 } else if player.properties[color]?.isComplete == false {
                     // Set is now incomplete — strip improvements that require a full set
                     player.properties[color]?.hasCornerStore = false
-                    player.properties[color]?.hasTowerBlock = false
+                    player.properties[color]?.hasApartmentBuilding = false
                 }
                 paid.append((color, removed))
                 remaining -= removed.monetaryValue

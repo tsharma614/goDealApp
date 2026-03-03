@@ -40,23 +40,6 @@ struct OpponentAreaView: View {
             }
             .padding(.horizontal, 10)
 
-            // Hand count — aesthetic pill instead of card visuals
-            if !player.hand.isEmpty {
-                HStack(spacing: 6) {
-                    Image(systemName: "rectangle.stack.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                    Text("\(player.hand.count) cards in hand")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
-                .background(Color(UIColor.tertiarySystemBackground), in: Capsule())
-                .padding(.horizontal, 6)
-            }
-
             // Properties — always shown so empty state is visible and layout height stays stable
             PlayerPropertyView(player: player, isInteractive: false)
                 .padding(.horizontal, 6)

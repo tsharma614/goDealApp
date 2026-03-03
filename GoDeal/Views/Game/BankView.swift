@@ -26,6 +26,8 @@ struct BankView: View {
         }
     }
 
+    @State private var bankPop: Bool = false
+
     private var fullView: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
@@ -56,8 +58,18 @@ struct BankView: View {
         .background(Color.green.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.green.opacity(0.2), lineWidth: 1)
+                .stroke(Color.green.opacity(bankPop ? 0.7 : 0.2), lineWidth: bankPop ? 2 : 1)
         )
+        .scaleEffect(bankPop ? 1.04 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.5), value: bankPop)
+        .onChange(of: player.bank.count) { old, new in
+            guard new > old else { return }
+            bankPop = true
+            Task {
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                bankPop = false
+            }
+        }
     }
 
     private func moneyChip(card: Card) -> some View {

@@ -58,8 +58,8 @@ enum ActionResolver {
             resolveDoubleUp(playerIndex: playerIndex, state: &state)
         case .cornerStore:
             try resolveCornerStore(playerIndex: playerIndex, targetColor: targetPropertyColor, state: &state, card: card)
-        case .towerBlock:
-            try resolveTowerBlock(playerIndex: playerIndex, targetColor: targetPropertyColor, state: &state, card: card)
+        case .apartmentBuilding:
+            try resolveApartmentBuilding(playerIndex: playerIndex, targetColor: targetPropertyColor, state: &state, card: card)
         }
     }
 
@@ -113,10 +113,10 @@ enum ActionResolver {
         if targetSet.hasCornerStore {
             state.players[attackerIndex].properties[color]?.hasCornerStore = true
         }
-        if targetSet.hasTowerBlock {
-            state.players[attackerIndex].properties[color]?.hasTowerBlock = true
+        if targetSet.hasApartmentBuilding {
+            state.players[attackerIndex].properties[color]?.hasApartmentBuilding = true
         }
-        GameLogger.shared.event("[\(state.players[attackerIndex].name)] stole complete \(color.displayName) set (\(targetSet.properties.count) cards\(targetSet.hasCornerStore ? " + CornerStore" : "")\(targetSet.hasTowerBlock ? " + TowerBlock" : "")) from \(state.players[targetIndex].name)")
+        GameLogger.shared.event("[\(state.players[attackerIndex].name)] stole complete \(color.displayName) set (\(targetSet.properties.count) cards\(targetSet.hasCornerStore ? " + CornerStore" : "")\(targetSet.hasApartmentBuilding ? " + ApartmentBuilding" : "")) from \(state.players[targetIndex].name)")
     }
 
     // MARK: - No Deal! (cancel action)
@@ -180,6 +180,17 @@ enum ActionResolver {
                 purpose: .swapIt(targetPlayerIndex: playerIndex)
             )
             return
+        }
+        // Both the target and attacker must have at least one property in an incomplete set
+        let targetIncomplete = state.players[tIdx].properties.filter { !$0.value.isComplete && !$0.value.properties.isEmpty }
+        guard !targetIncomplete.isEmpty else {
+            GameLogger.shared.warn("[ActionResolver] resolveSwapIt — target has no incomplete sets")
+            throw ActionResolverError.noIncompleteSet
+        }
+        let attackerIncomplete = state.players[playerIndex].properties.filter { !$0.value.isComplete && !$0.value.properties.isEmpty }
+        guard !attackerIncomplete.isEmpty else {
+            GameLogger.shared.warn("[ActionResolver] resolveSwapIt — attacker has no incomplete sets to give")
+            throw ActionResolverError.noIncompleteSet
         }
         state.phase = .awaitingResponse(
             targetPlayerIndex: tIdx,
@@ -300,25 +311,25 @@ enum ActionResolver {
         }
     }
 
-    // MARK: - Tower Block (improvement after Corner Store)
+    // MARK: - Apartment Building (improvement after Corner Store)
 
-    private static func resolveTowerBlock(
+    private static func resolveApartmentBuilding(
         playerIndex: Int,
         targetColor: PropertyColor?,
         state: inout GameState,
         card: Card
     ) throws {
-        let eligible = state.players[playerIndex].properties.filter { $0.value.canAddTowerBlock }
+        let eligible = state.players[playerIndex].properties.filter { $0.value.canAddApartmentBuilding }
         guard !eligible.isEmpty else { throw ActionResolverError.cannotAddImprovement }
 
         if let color = targetColor, var set = state.players[playerIndex].properties[color] {
-            guard set.canAddTowerBlock else { throw ActionResolverError.cannotAddImprovement }
-            set.hasTowerBlock = true
+            guard set.canAddApartmentBuilding else { throw ActionResolverError.cannotAddImprovement }
+            set.hasApartmentBuilding = true
             state.players[playerIndex].properties[color] = set
-            GameLogger.shared.event("[\(state.players[playerIndex].name)] added Tower Block to \(color.displayName)")
+            GameLogger.shared.event("[\(state.players[playerIndex].name)] added Apartment Building to \(color.displayName)")
         } else if eligible.count == 1, let color = eligible.keys.first {
-            state.players[playerIndex].properties[color]?.hasTowerBlock = true
-            GameLogger.shared.event("[\(state.players[playerIndex].name)] added Tower Block to \(color.displayName) (only eligible set)")
+            state.players[playerIndex].properties[color]?.hasApartmentBuilding = true
+            GameLogger.shared.event("[\(state.players[playerIndex].name)] added Apartment Building to \(color.displayName) (only eligible set)")
         }
     }
 

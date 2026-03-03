@@ -7,7 +7,7 @@ struct PropertySet: Hashable, Identifiable, Codable {
     let color: PropertyColor
     var properties: [Card]
     var hasCornerStore: Bool = false
-    var hasTowerBlock: Bool = false
+    var hasApartmentBuilding: Bool = false
 
     var isComplete: Bool {
         properties.count >= color.setSize
@@ -20,7 +20,7 @@ struct PropertySet: Hashable, Identifiable, Codable {
         let table = color.rentTable
 
         if isComplete {
-            if hasTowerBlock && table.count >= 5 {
+            if hasApartmentBuilding && table.count >= 5 {
                 return table[4]
             } else if hasCornerStore && table.count >= 4 {
                 return table[3]
@@ -42,9 +42,9 @@ struct PropertySet: Hashable, Identifiable, Codable {
         color != .transitLine && color != .powerAndWater
     }
 
-    // Can a Tower Block be added? (requires complete set + corner store)
-    var canAddTowerBlock: Bool {
-        isComplete && hasCornerStore && !hasTowerBlock &&
+    // Can an Apartment Building be added? (requires complete set + corner store)
+    var canAddApartmentBuilding: Bool {
+        isComplete && hasCornerStore && !hasApartmentBuilding &&
         color != .transitLine && color != .powerAndWater
     }
 

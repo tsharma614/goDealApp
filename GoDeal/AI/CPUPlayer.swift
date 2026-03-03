@@ -14,6 +14,11 @@ final class CPUPlayer {
     // Delay between CPU actions for visual feedback (seconds)
     var actionDelay: Double = 2.4
 
+    // Guards against executeTurn + resumeTurn running concurrently.
+    // SwiftUI's onChange(.playing) fires during executeTurn's sleep and schedules resumeTurn,
+    // but executeTurn hasn't finished yet. The flag lets the second Task exit cleanly.
+    private var isExecuting: Bool = false
+
     init(playerIndex: Int, difficulty: AIDifficulty, engine: GameEngine) {
         self.playerIndex = playerIndex
         self.difficulty = difficulty
@@ -25,6 +30,10 @@ final class CPUPlayer {
     /// Runs the CPU's full turn asynchronously.
     @MainActor
     func executeTurn() async {
+        guard !isExecuting else { return }
+        isExecuting = true
+        defer { isExecuting = false }
+
         guard let engine = engine else { return }
 
         // Draw phase
@@ -77,6 +86,10 @@ final class CPUPlayer {
     /// Called after a No Deal! response cancels an action mid-turn.
     @MainActor
     func resumeTurn() async {
+        guard !isExecuting else { return }
+        isExecuting = true
+        defer { isExecuting = false }
+
         guard let engine = engine else { return }
         guard engine.state.currentPlayerIndex == playerIndex else { return }
         guard case .playing = engine.state.phase else { return }
@@ -145,8 +158,12 @@ final class CPUPlayer {
             }
 
         case .swapIt(let targetIdx):
-            let targetProps = engine.state.players[targetIdx].properties.values.flatMap { $0.properties }
-            let myProps = engine.state.players[playerIndex].properties.values.flatMap { $0.properties }
+            let targetProps = engine.state.players[targetIdx].properties.values
+                .filter { !$0.isComplete }
+                .flatMap { $0.properties }
+            let myProps = engine.state.players[playerIndex].properties.values
+                .filter { !$0.isComplete }
+                .flatMap { $0.properties }
             if let theirCard = targetProps.max(by: { $0.monetaryValue < $1.monetaryValue }),
                let myCard = myProps.min(by: { $0.monetaryValue < $1.monetaryValue }) {
                 log.event("[\(name) swapIt] giving '\(myCard.name)', taking '\(theirCard.name)' from \(engine.state.players[targetIdx].name)")
@@ -227,15 +244,10 @@ final class CPUPlayer {
 
     @MainActor
     private func handleAwaitingResponse(engine: GameEngine) async {
-        if case .awaitingResponse(_, let actionCard, let attackerIndex) = engine.state.phase {
-            // If CPU is the target, respond
-            if engine.state.currentPlayerIndex != playerIndex {
-                // We are the target
-                await respondToAction(actionCard: actionCard, engine: engine)
-            } else {
-                // We are the attacker waiting — just accept if no response from opponent
-                // (Human target handled by UI)
-            }
+        if case .awaitingResponse(let targetIdx, let actionCard, _) = engine.state.phase,
+           targetIdx == playerIndex {
+            // This CPU is the actual target — respond
+            await respondToAction(actionCard: actionCard, engine: engine)
         }
     }
 

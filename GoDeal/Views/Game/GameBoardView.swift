@@ -18,6 +18,10 @@ struct GameBoardView: View {
     @State private var pendingActionCard: Card? = nil
     @State private var showLogSheet = false
     @State private var pendingImprovementCard: Card? = nil  // corner store / tower block multi-set picker
+    @State private var drawFeedbackCount: Int? = nil         // "+N" badge shown briefly after drawing
+    @State private var handCountBeforeDraw: Int = 0
+    @State private var propertyLostFlash: Bool = false        // red glow on whole properties section
+    @State private var flashingPropertyColors: Set<PropertyColor> = []  // red border on individual sets
 
     // Double rent prompt state
     @State private var showDoubleRentDialog = false
@@ -49,6 +53,16 @@ struct GameBoardView: View {
         @Bindable var vm = viewModel
 
         GeometryReader { geo in
+            // Scale all fixed heights proportionally relative to iPhone 17 Pro (852pt) baseline.
+            // This ensures the layout adapts continuously across all iPhone sizes without
+            // any sudden jumps — from iPhone SE (667pt) through 16e (844pt) to Pro Max (956pt+).
+            let h = geo.size.height
+            let scale = min(max(h / 852.0, 0.80), 1.20)  // clamp ±20% from baseline
+            let opponentCount = viewModel.state.players.count - 1
+            let opponentMaxH: CGFloat = 185 * scale
+            let deckH: CGFloat = 100 * scale
+            let divPad: CGFloat = h < 750 ? 1 : h < 900 ? 2 : 3
+
             ZStack {
                 // Background
                 LinearGradient(
@@ -62,11 +76,10 @@ struct GameBoardView: View {
                     // Top bar
                     topBar
                         .padding(.horizontal)
-                        .padding(.vertical, 6)
+                        .padding(.vertical, h < 750 ? 3 : h < 900 ? 4 : 6)
 
                     // Opponents — single opponent fills full width; 2+ paginate at ~70% so
                     // the edge of the next card peeks into view hinting scrollability.
-                    let opponentCount = viewModel.state.players.count - 1
                     let opponentCardWidth: CGFloat = opponentCount > 1
                         ? max(geo.size.width * 0.72, 260)
                         : max(geo.size.width - 40, 280)
@@ -84,20 +97,24 @@ struct GameBoardView: View {
                         }
                         .padding(.horizontal)
                     }
-                    .frame(maxHeight: opponentCount > 1 ? 220 : 200)
+                    .frame(maxHeight: opponentMaxH)
 
-                    Divider().padding(.vertical, 4)
+                    Divider().padding(.vertical, divPad)
 
-                    // Deck + discard + activity feed in the middle
+                    // Flexible spacers absorb any extra vertical space so the
+                    // activity / deck section floats centered between the two dividers.
+                    Spacer(minLength: 0)
+
                     DeckAreaView(
                         deckCount: viewModel.state.deck.count,
                         topDiscard: viewModel.state.discardPile.last,
                         recentActivity: logger.activityFeed
                     )
-                    .frame(height: 120)
-                    .padding(.top, 6)
+                    .frame(height: deckH)
 
-                    Divider().padding(.vertical, 4)
+                    Spacer(minLength: 0)
+
+                    Divider().padding(.vertical, divPad)
 
                     // Human player properties
                     if let humanPlayer = viewModel.humanPlayer {
@@ -116,18 +133,24 @@ struct GameBoardView: View {
                             PlayerPropertyView(
                                 player: humanPlayer,
                                 isInteractive: true,
+                                flashingColors: flashingPropertyColors,
                                 onPropertyTap: { _, _ in },
                                 onLongPress: viewModel.isHumanTurn ? { set in longPressedSet = set } : nil
                             )
-                            .frame(height: 130)
+                            .frame(maxHeight: 130 * scale)
                             .padding(.horizontal, 4)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color.red.opacity(propertyLostFlash ? 0.10 : 0))
+                                    .allowsHitTesting(false)
+                            )
 
                             BankView(player: humanPlayer, compact: false)
                                 .padding(.horizontal, 4)
                         }
                     }
 
-                    Divider().padding(.vertical, 4)
+                    Divider().padding(.vertical, divPad)
 
                     // Human hand
                     if let humanPlayer = viewModel.humanPlayer {
@@ -135,6 +158,7 @@ struct GameBoardView: View {
                             cards: humanPlayer.hand,
                             canPlay: viewModel.isHumanTurn && viewModel.state.canPlayCard,
                             selectedCardId: selectedCardId,
+                            isCardPlayable: { card in viewModel.isCardLegallyPlayable(card) },
                             onCardTap: { card in
                                 handleCardTap(card)
                             },
@@ -147,8 +171,9 @@ struct GameBoardView: View {
                     // Controls bar
                     controlsBar
                         .padding(.horizontal)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, h < 750 ? 3 : h < 900 ? 4 : 8)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 // Game Over overlay
                 if case .gameOver(let winnerIdx) = viewModel.state.phase {
@@ -157,8 +182,12 @@ struct GameBoardView: View {
             }
         }
         .sheet(isPresented: $vm.isShowingNoDealSheet, onDismiss: {
-            // If the sheet was swiped away without choosing, auto-accept so game never freezes
-            if case .awaitingResponse(let targetIdx, _, _) = viewModel.state.phase,
+            // If the sheet was swiped away without the user tapping a button, auto-accept
+            // so the game never freezes. Guard on noDealInteracted to prevent this firing
+            // when onDismiss is triggered after a button tap (Accept/No Deal!) due to the
+            // next awaitingResponse phase already being active at dismissal time.
+            if !viewModel.noDealInteracted,
+               case .awaitingResponse(let targetIdx, _, _) = viewModel.state.phase,
                targetIdx == viewModel.localPlayerIndex {
                 viewModel.acceptAction()
             }
@@ -433,7 +462,7 @@ struct GameBoardView: View {
                         let isCornerStore: Bool = { if case .action(.cornerStore) = card.type { return true }; return false }()
                         let eligibleCount = isCornerStore
                             ? myProps.filter { $0.value.canAddCornerStore }.count
-                            : myProps.filter { $0.value.canAddTowerBlock }.count
+                            : myProps.filter { $0.value.canAddApartmentBuilding }.count
                         pendingActionCard = nil
                         if eligibleCount > 1 {
                             // Multiple eligible sets — let user pick which one
@@ -482,11 +511,114 @@ struct GameBoardView: View {
             NavigationStack {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        Text("Long press a wild card to move it to another district — free action.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal)
 
+                        // ── Rent & set-size summary ──────────────────────────────
+                        VStack(spacing: 0) {
+                            // Current rent row
+                            HStack {
+                                Label("Current rent", systemImage: "dollarsign.circle.fill")
+                                    .font(.subheadline.weight(.semibold))
+                                Spacer()
+                                Text("$\(set.currentRent)M")
+                                    .font(.title2.weight(.bold))
+                                    .foregroundStyle(set.isComplete ? .green : .primary)
+                            }
+                            .padding()
+
+                            Divider()
+
+                            // Progress row
+                            HStack {
+                                Label("Properties", systemImage: "house.fill")
+                                    .font(.subheadline.weight(.semibold))
+                                Spacer()
+                                Text("\(set.properties.count) / \(set.color.setSize)")
+                                    .font(.title3.weight(.semibold))
+                                    .foregroundStyle(set.isComplete ? .green : .orange)
+                                if set.isComplete {
+                                    Image(systemName: "checkmark.seal.fill")
+                                        .foregroundStyle(.green)
+                                }
+                            }
+                            .padding()
+
+                            Divider()
+
+                            // Full rent table — base tiers + improvements
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Rent table")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+
+                                // Build tiers based on color type.
+                                // table[0..setSize-1] = partial tiers,
+                                // table[2]            = complete set base (always, even for 2-card sets),
+                                // table[3]            = + Corner Store,
+                                // table[4]            = + Apartment Building.
+                                let table = set.color.rentTable
+                                let isTransit  = set.color == .transitLine
+                                let isUtility  = set.color == .powerAndWater
+                                let supportsImprovements = !isTransit && !isUtility
+
+                                // Each tuple: (short label, rent, isActive)
+                                let tiers: [(String, Int, Bool)] = {
+                                    var rows: [(String, Int, Bool)] = []
+
+                                    if isTransit {
+                                        // 4 equal tiers, no improvements
+                                        for i in 0..<4 {
+                                            let active = set.isComplete ? i == 3 : set.properties.count == i + 1
+                                            rows.append((i == 3 ? "Full" : "\(i+1)", table[i], active))
+                                        }
+                                    } else if isUtility {
+                                        // 2 tiers, no improvements; complete uses table[2] by engine convention
+                                        rows.append(("1", table[0], !set.isComplete && set.properties.count == 1))
+                                        rows.append(("Full", table[2], set.isComplete))
+                                    } else {
+                                        // Partial tiers up to (setSize - 1) — 2-card sets have only 1 partial tier
+                                        for i in 0..<(set.color.setSize - 1) {
+                                            let active = !set.isComplete && set.properties.count == i + 1
+                                            rows.append(("\(i+1)", table[i], active))
+                                        }
+                                        // Complete base (engine always uses table[2] for non-transit)
+                                        let baseActive = set.isComplete && !set.hasCornerStore && !set.hasApartmentBuilding
+                                        rows.append(("Full", table[2], baseActive))
+                                        // Improvements
+                                        rows.append(("+ CS", table[3], set.isComplete && set.hasCornerStore && !set.hasApartmentBuilding))
+                                        rows.append(("+ AB", table[4], set.isComplete && set.hasApartmentBuilding))
+                                    }
+
+                                    return rows
+                                }()
+
+                                HStack(spacing: 3) {
+                                    ForEach(Array(tiers.enumerated()), id: \.offset) { _, tier in
+                                        let isActive = tier.2
+                                        VStack(spacing: 2) {
+                                            Text(tier.0)
+                                                .font(.system(size: 9))
+                                                .foregroundStyle(isActive ? .primary : .secondary)
+                                                .multilineTextAlignment(.center)
+                                                .minimumScaleFactor(0.7)
+                                                .lineLimit(2)
+                                            Text("$\(tier.1)M")
+                                                .font(.caption.weight(isActive ? .bold : .regular))
+                                                .foregroundStyle(isActive ? Color(set.color.uiColor) : .secondary)
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 6)
+                                        .background(isActive ? Color(set.color.uiColor).opacity(0.15) : Color.clear)
+                                        .cornerRadius(6)
+                                    }
+                                }
+                            }
+                            .padding()
+                        }
+                        .background(Color(UIColor.secondarySystemBackground))
+                        .cornerRadius(12)
+                        .padding(.horizontal)
+
+                        // ── Cards in this set ────────────────────────────────────
                         let wilds = set.properties.filter { if case .wildProperty = $0.type { return true }; return false }
                         let normals = set.properties.filter { if case .wildProperty = $0.type { return false }; return true }
 
@@ -532,6 +664,11 @@ struct GameBoardView: View {
                                 }
                             }
                         }
+
+                        Text("Long press a wild card to move it to a different district — free action.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal)
                     }
                     .padding(.vertical)
                 }
@@ -580,7 +717,7 @@ struct GameBoardView: View {
                 if isCornerStore {
                     return props.filter { $0.value.canAddCornerStore }.keys.sorted { $0.displayName < $1.displayName }
                 } else {
-                    return props.filter { $0.value.canAddTowerBlock }.keys.sorted { $0.displayName < $1.displayName }
+                    return props.filter { $0.value.canAddApartmentBuilding }.keys.sorted { $0.displayName < $1.displayName }
                 }
             }()
             NavigationStack {
@@ -605,7 +742,7 @@ struct GameBoardView: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .navigationTitle(isCornerStore ? "Add Corner Store" : "Add Tower Block")
+                .navigationTitle(isCornerStore ? "Add Corner Store" : "Add Apartment Building")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
@@ -628,7 +765,43 @@ struct GameBoardView: View {
         } message: {
             Text("A player left the game.")
         }
-        .onChange(of: viewModel.state.phase) { _, _ in
+        .onChange(of: viewModel.humanPropertyCardCounts) { old, new in
+            // Find colors that lost cards (stolen or paid as debt)
+            var lost: Set<PropertyColor> = []
+            for (color, oldCount) in old {
+                let newCount = new[color] ?? 0
+                if newCount < oldCount { lost.insert(color) }
+            }
+            guard !lost.isEmpty else { return }
+            Haptics.notification(.warning)
+            withAnimation(.easeIn(duration: 0.08)) {
+                propertyLostFlash = true
+                flashingPropertyColors = lost
+            }
+            Task {
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                withAnimation(.easeOut(duration: 0.35)) {
+                    propertyLostFlash = false
+                    flashingPropertyColors = []
+                }
+            }
+        }
+        .onChange(of: viewModel.state.phase) { oldPhase, _ in
+            // Show "+N cards" badge when human finishes drawing
+            if case .drawing = oldPhase, viewModel.isHumanTurn {
+                let drawn = (viewModel.humanPlayer?.hand.count ?? 0) - handCountBeforeDraw
+                if drawn > 0 {
+                    withAnimation(.spring(response: 0.3)) {
+                        drawFeedbackCount = drawn
+                    }
+                    Task {
+                        try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        withAnimation(.easeOut(duration: 0.4)) {
+                            drawFeedbackCount = nil
+                        }
+                    }
+                }
+            }
             viewModel.handlePhaseChange()
         }
         .onAppear {
@@ -717,6 +890,7 @@ struct GameBoardView: View {
             // Draw button (start of turn)
             if viewModel.isHumanTurn, case .drawing = viewModel.state.phase {
                 Button {
+                    handCountBeforeDraw = viewModel.humanPlayer?.hand.count ?? 0
                     viewModel.startTurn()
                 } label: {
                     Label("Draw Cards", systemImage: "arrow.down.circle.fill")
@@ -726,6 +900,17 @@ struct GameBoardView: View {
                         .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 10))
                         .foregroundStyle(.white)
                 }
+            }
+
+            // "+N cards" badge shown briefly after drawing
+            if let n = drawFeedbackCount {
+                Text("+\(n) cards")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .transition(.scale(scale: 0.8).combined(with: .opacity))
             }
 
             // End turn button
@@ -830,8 +1015,8 @@ struct GameBoardView: View {
         switch card.type {
         case .action(.cornerStore):
             return !(viewModel.humanPlayer?.properties.filter { $0.value.canAddCornerStore }.isEmpty ?? true)
-        case .action(.towerBlock):
-            return !(viewModel.humanPlayer?.properties.filter { $0.value.canAddTowerBlock }.isEmpty ?? true)
+        case .action(.apartmentBuilding):
+            return !(viewModel.humanPlayer?.properties.filter { $0.value.canAddApartmentBuilding }.isEmpty ?? true)
         case .rent(let colors):
             // Can only play if player owns at least one property in the valid colors
             let myProps = viewModel.humanPlayer?.properties ?? [:]
@@ -903,7 +1088,7 @@ struct GameBoardView: View {
             switch type {
             case .noDeal:
                 return
-            case .cornerStore, .towerBlock:
+            case .cornerStore, .apartmentBuilding:
                 // Always show dialog — user can bank even without an eligible set
                 pendingActionCard = card
                 showActionBankDialog = true

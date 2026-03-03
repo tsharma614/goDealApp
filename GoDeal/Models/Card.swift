@@ -23,7 +23,7 @@ enum ActionType: String, CaseIterable, Hashable, Codable {
     case dealForward   // Draw 2 extra cards
     case doubleUp      // Double rent on the same turn
     case cornerStore   // Add to a complete set (+$3M rent)
-    case towerBlock    // Add after Corner Store (+$4M rent)
+    case apartmentBuilding    // Add after Corner Store (+$4M rent)
 
     var displayName: String {
         switch self {
@@ -36,7 +36,7 @@ enum ActionType: String, CaseIterable, Hashable, Codable {
         case .dealForward:  return "Deal Forward!"
         case .doubleUp:     return "Double Up!"
         case .cornerStore:  return "Corner Store"
-        case .towerBlock:   return "Tower Block"
+        case .apartmentBuilding:   return "Apartment Building"
         }
     }
 
@@ -51,7 +51,7 @@ enum ActionType: String, CaseIterable, Hashable, Codable {
         case .dealForward:  return "Draw 2 extra cards from the deck."
         case .doubleUp:     return "Double the rent you collect this turn."
         case .cornerStore:  return "Add to a complete property set to increase rent by $3M."
-        case .towerBlock:   return "Add after a Corner Store to increase rent by an additional $4M."
+        case .apartmentBuilding:   return "Add after a Corner Store to increase rent by an additional $4M."
         }
     }
 }

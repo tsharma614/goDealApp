@@ -101,7 +101,7 @@ final class WinCheckerTests: XCTestCase {
         var state = makeGameState()
         var rustSet = makeCompleteSet(color: .rustDistrict)
         rustSet.hasCornerStore = true
-        rustSet.hasTowerBlock = true
+        rustSet.hasApartmentBuilding = true
         state.players[0].properties[.rustDistrict] = rustSet
         state.players[0].properties[.blueChip] = makeCompleteSet(color: .blueChip)
         state.players[0].properties[.hotZone] = makeCompleteSet(color: .hotZone)
@@ -125,17 +125,17 @@ final class WinCheckerTests: XCTestCase {
     // MARK: - Rent Calculations
 
     func testPropertySetRent() {
-        // Rust District: 2 cards, full set = $3M
+        // Rust District: 2 cards, full set = $3M (rentTable[2]=3)
         var set = makeCompleteSet(color: .rustDistrict)
         XCTAssertEqual(set.currentRent, 3)
 
-        // With corner store
+        // With corner store: rentTable[3] = 6
         set.hasCornerStore = true
-        XCTAssertEqual(set.currentRent, 4)
+        XCTAssertEqual(set.currentRent, 6)
 
-        // With tower block
-        set.hasTowerBlock = true
-        XCTAssertEqual(set.currentRent, 5)
+        // With apartment building: rentTable[4] = 10
+        set.hasApartmentBuilding = true
+        XCTAssertEqual(set.currentRent, 10)
     }
 
     func testPartialSetRent() {
@@ -174,11 +174,11 @@ final class WinCheckerTests: XCTestCase {
         // Build a complete Blue Chip set with improvements
         var set = makeCompleteSet(color: .blueChip)
         set.hasCornerStore = true
-        set.hasTowerBlock = true
+        set.hasApartmentBuilding = true
         player.properties[.blueChip] = set
 
         XCTAssertTrue(player.properties[.blueChip]!.hasCornerStore)
-        XCTAssertTrue(player.properties[.blueChip]!.hasTowerBlock)
+        XCTAssertTrue(player.properties[.blueChip]!.hasApartmentBuilding)
 
         // Remove one card — set becomes incomplete
         let cardToRemove = player.properties[.blueChip]!.properties.first!.id
@@ -186,7 +186,7 @@ final class WinCheckerTests: XCTestCase {
 
         XCTAssertFalse(player.properties[.blueChip]?.isComplete ?? true, "Set should be incomplete")
         XCTAssertFalse(player.properties[.blueChip]?.hasCornerStore ?? true, "Corner Store must be cleared")
-        XCTAssertFalse(player.properties[.blueChip]?.hasTowerBlock ?? true, "Tower Block must be cleared")
+        XCTAssertFalse(player.properties[.blueChip]?.hasApartmentBuilding ?? true, "Tower Block must be cleared")
     }
 
     func testImprovementsPreservedWhenSetRemainsComplete() {

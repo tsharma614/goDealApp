@@ -379,8 +379,8 @@ enum AIStrategy {
                     return AIDecision(card: card, destination: .action, targetPropertyColor: color)
                 }
                 return nil
-            case .towerBlock:
-                let eligible = player.properties.filter { $0.value.canAddTowerBlock }
+            case .apartmentBuilding:
+                let eligible = player.properties.filter { $0.value.canAddApartmentBuilding }
                 if let color = eligible.keys.first {
                     return AIDecision(card: card, destination: .action, targetPropertyColor: color)
                 }

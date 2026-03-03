@@ -457,11 +457,11 @@ final class GameEngine {
         }
         // If source set is now incomplete, strip improvements (they require a complete set)
         if var sourceSet = state.players[playerIndex].properties[fromColor], !sourceSet.isComplete {
-            if sourceSet.hasCornerStore || sourceSet.hasTowerBlock {
+            if sourceSet.hasCornerStore || sourceSet.hasApartmentBuilding {
                 log.event("[\(state.players[playerIndex].name)] \(fromColor.displayName) lost improvements (no longer complete after wild moved)")
             }
             sourceSet.hasCornerStore = false
-            sourceSet.hasTowerBlock = false
+            sourceSet.hasApartmentBuilding = false
             state.players[playerIndex].properties[fromColor] = sourceSet
         }
         state.players[playerIndex].placeProperty(card, in: toColor)

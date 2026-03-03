@@ -30,21 +30,21 @@ enum PropertyColor: String, CaseIterable, Hashable, Codable {
         }
     }
 
-    // Rent table indexed by: [1 prop, 2 props, full set, full+cornerStore, full+towerBlock]
-    // Transit uses [1,2,3,4 properties] — no corner store / tower block
-    // Utilities use [1,2 utilities] — multiplier-based in original, here flat values
+    // Rent table indexed by: [1 prop, 2 props, full set, full+cornerStore(+$3M), full+apartmentBuilding(+$4M)]
+    // Corner Store always adds exactly $3M; Apartment Building always adds exactly $4M (cumulative: +$7M over full).
+    // Transit and Power & Water don't support improvements (indices 3 & 4 unused).
     var rentTable: [Int] {
         switch self {
-        case .rustDistrict:   return [1, 2, 3, 4, 5]       // Brown
-        case .skylineAve:     return [1, 2, 3, 4, 5]       // Light Blue (original: 1,2,3,+3,+3)
-        case .neonRow:        return [1, 2, 4, 5, 6]       // Pink
-        case .sunsetStrip:    return [1, 3, 5, 6, 7]       // Orange
-        case .hotZone:        return [2, 3, 6, 7, 8]       // Red
-        case .goldRush:       return [2, 4, 6, 7, 8]       // Yellow
-        case .emeraldQuarter: return [2, 4, 7, 8, 9]       // Green
-        case .blueChip:       return [3, 8, 8, 11, 15]     // Dark Blue
-        case .transitLine:    return [1, 2, 3, 4, 4]       // Railroad (4 props max)
-        case .powerAndWater:  return [1, 2, 2, 2, 2]       // Utility (flat)
+        case .rustDistrict:   return [1, 2, 3, 6, 10]      // Brown       full=3  +CS=6  +AB=10
+        case .skylineAve:     return [1, 2, 3, 6, 10]      // Light Blue  full=3  +CS=6  +AB=10
+        case .neonRow:        return [1, 2, 4, 7, 11]      // Pink        full=4  +CS=7  +AB=11
+        case .sunsetStrip:    return [1, 3, 5, 8, 12]      // Orange      full=5  +CS=8  +AB=12
+        case .hotZone:        return [2, 3, 6, 9, 13]      // Red         full=6  +CS=9  +AB=13
+        case .goldRush:       return [2, 4, 6, 9, 13]      // Yellow      full=6  +CS=9  +AB=13
+        case .emeraldQuarter: return [2, 4, 7, 10, 14]     // Green       full=7  +CS=10 +AB=14
+        case .blueChip:       return [3, 8, 8, 11, 15]     // Dark Blue   full=8  +CS=11 +AB=15
+        case .transitLine:    return [1, 2, 3, 4, 4]       // Railroad (4 props max, no improvements)
+        case .powerAndWater:  return [1, 2, 2, 2, 2]       // Utility (flat, no improvements)
         }
     }
 

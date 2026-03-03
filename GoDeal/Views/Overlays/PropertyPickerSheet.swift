@@ -162,15 +162,17 @@ struct PropertyPickerSheet: View {
             )
 
             let myCards = humanPlayer.properties.values
+                .filter { !$0.isComplete }
                 .flatMap { $0.properties }
                 .sorted { $0.monetaryValue < $1.monetaryValue }
             let theirCards = targetPlayer.properties.values
+                .filter { !$0.isComplete }
                 .flatMap { $0.properties }
                 .sorted { $0.monetaryValue > $1.monetaryValue }
 
             if myCards.isEmpty || theirCards.isEmpty {
                 Spacer()
-                Text("Cannot swap — not enough properties on both sides.")
+                Text("Cannot swap — both players need at least one property in an incomplete set.")
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding()
@@ -348,15 +350,17 @@ struct PropertyPickerSheet: View {
             )
 
             let myCards = humanPlayer.properties.values
+                .filter { !$0.isComplete }
                 .flatMap { $0.properties }
                 .sorted { $0.monetaryValue < $1.monetaryValue }
             let theirCards = targetPlayer.properties.values
+                .filter { !$0.isComplete }
                 .flatMap { $0.properties }
                 .sorted { $0.monetaryValue > $1.monetaryValue }
 
             if myCards.isEmpty || theirCards.isEmpty {
                 Spacer()
-                Text("Cannot swap — not enough properties on both sides.")
+                Text("Cannot swap — both players need at least one property in an incomplete set.")
                     .foregroundStyle(.secondary).multilineTextAlignment(.center).padding()
                 Spacer()
             } else {

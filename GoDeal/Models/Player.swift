@@ -77,7 +77,7 @@ struct Player: Identifiable, Hashable, Codable {
     }
 
     // Remove a property card from any set, returns the card and its color.
-    // Also clears improvements (Corner Store / Tower Block) if the set is no longer complete.
+    // Also clears improvements (Corner Store / Apartment Building) if the set is no longer complete.
     mutating func removeProperty(id: UUID) -> (Card, PropertyColor)? {
         for color in properties.keys {
             if let removed = properties[color]?.removeProperty(withId: id) {
@@ -86,7 +86,7 @@ struct Player: Identifiable, Hashable, Codable {
                 } else if properties[color]?.isComplete == false {
                     // Set is now incomplete — improvements require a complete set
                     properties[color]?.hasCornerStore = false
-                    properties[color]?.hasTowerBlock = false
+                    properties[color]?.hasApartmentBuilding = false
                 }
                 return (removed, color)
             }
