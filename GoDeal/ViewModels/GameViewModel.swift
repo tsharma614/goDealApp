@@ -505,12 +505,15 @@ final class GameViewModel {
 
     private func broadcastState() {
         guard isHost, let session = networkSession else { return }
-        session.send(.gameState(engine.state))
+        var stateToSend = engine.state
+        stateToSend.activityFeed = log.activityFeed
+        session.send(.gameState(stateToSend))
     }
 
     // MARK: - Guest: apply incoming state
 
     func applyNetworkState(_ newState: GameState) {
+        log.setActivityFeed(newState.activityFeed)
         engine.state = newState
         // SwiftUI's @Observable system will notify views via observation tracking.
         // updateGuestUI() drives sheet visibility for the local guest player.

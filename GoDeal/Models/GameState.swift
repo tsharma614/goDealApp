@@ -101,6 +101,8 @@ struct GameState: Codable {
     var pendingRentAmount: Int = 0
     /// Rent color stored alongside pendingRentAmount for the NoDeal chain.
     var pendingRentColor: PropertyColor? = nil
+    /// Activity feed snapshot — host embeds this before each broadcast so guests see the same feed.
+    var activityFeed: [String] = []
 
     // Convenience
     var currentPlayer: Player {

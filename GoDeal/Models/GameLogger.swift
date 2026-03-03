@@ -46,6 +46,8 @@ final class GameLogger {
         if activityFeed.count > 8 { activityFeed.removeLast() }
     }
     func clearActivity() { activityFeed.removeAll() }
+    /// Replaces the feed wholesale — used by multiplayer guests to sync from host broadcast.
+    func setActivityFeed(_ feed: [String]) { activityFeed = feed }
     private let osLog = OSLog(subsystem: "com.tanmaysharma.godeal", category: "Game")
 
     // MARK: - File logging
