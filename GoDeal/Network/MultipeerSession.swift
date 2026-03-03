@@ -138,7 +138,16 @@ extension MultipeerSession: MCSessionDelegate {
                 }
             case .notConnected:
                 self.connectedPeers.removeAll { $0 == peerID }
-                self.onDisconnect?()
+                // Brief grace period before declaring disconnect — the peer's app may
+                // be returning from background (e.g. phone screen woken within ~30s).
+                // If they reconnect during this window the callback is suppressed.
+                let lostPeer = peerID
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    try? await Task.sleep(nanoseconds: 8_000_000_000)
+                    guard !self.connectedPeers.contains(lostPeer) else { return }
+                    self.onDisconnect?()
+                }
             default:
                 break
             }

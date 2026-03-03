@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - Game Board View
 // The main game screen. Laid out top-to-bottom:
@@ -9,6 +10,9 @@ struct GameBoardView: View {
     /// Called when the user taps the gear icon to return to the main menu.
     var onExit: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    /// Background task token — keeps MC session alive while the screen is off.
+    @State private var bgTaskID: UIBackgroundTaskIdentifier = .invalid
 
     @State private var selectedCardId: UUID? = nil
     @State private var showPlayAgainSetup = false
@@ -759,11 +763,12 @@ struct GameBoardView: View {
         } message: {
             Text("The host wants to play another round with the same players.")
         }
-        // Internet multiplayer: a player dropped mid-game
+        // Multiplayer: a player dropped mid-game
         .alert("Player Disconnected", isPresented: $vm.playerDisconnectedAlert) {
-            Button("End Game") { onExit?() }
+            Button("End Game", role: .destructive) { onExit?() }
+            Button("Keep Playing") { vm.playerDisconnectedAlert = false }
         } message: {
-            Text("A player left the game.")
+            Text("A player lost connection. You can keep playing without them or end the game.")
         }
         .onChange(of: viewModel.humanPropertyCardCounts) { old, new in
             // Find colors that lost cards (stolen or paid as debt)
@@ -813,6 +818,26 @@ struct GameBoardView: View {
                     viewModel.triggerCPUIfNeeded()
                 }
                 // Solo human turn: Draw button is visible; no auto-draw
+            }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            guard viewModel.networkSession != nil else { return }
+            switch newPhase {
+            case .background:
+                // Request background execution time so the MC session stays alive
+                // while the screen is off. iOS grants ~30 seconds.
+                guard bgTaskID == .invalid else { return }
+                bgTaskID = UIApplication.shared.beginBackgroundTask(withName: "MC-keepalive") {
+                    UIApplication.shared.endBackgroundTask(bgTaskID)
+                    bgTaskID = .invalid
+                }
+            case .active:
+                if bgTaskID != .invalid {
+                    UIApplication.shared.endBackgroundTask(bgTaskID)
+                    bgTaskID = .invalid
+                }
+            default:
+                break
             }
         }
     }
