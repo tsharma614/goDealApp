@@ -20,7 +20,7 @@ struct GameBoardView: View {
     @State private var pendingWildCard: Card? = nil   // triggers WildPropertyColorPicker via sheet(item:)
     @State private var showActionBankDialog = false
     @State private var pendingActionCard: Card? = nil
-    @State private var showLogSheet = false
+
     @State private var pendingImprovementCard: Card? = nil  // corner store / tower block multi-set picker
     @State private var drawFeedbackCount: Int? = nil         // "+N" badge shown briefly after drawing
     @State private var handCountBeforeDraw: Int = 0
@@ -937,28 +937,6 @@ struct GameBoardView: View {
                     .foregroundStyle(.secondary)
             }
 
-            // Debug log button (shows badge when issues exist)
-            Button {
-                showLogSheet = true
-            } label: {
-                ZStack(alignment: .topTrailing) {
-                    Image(systemName: "ladybug")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    if logger.issueCount > 0 {
-                        Circle()
-                            .fill(.orange)
-                            .frame(width: 7, height: 7)
-                            .offset(x: 3, y: -3)
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-            .padding(.leading, 4)
-        }
-        .sheet(isPresented: $showLogSheet) {
-            GameLogSheet()
-                .presentationDetents([.large])
         }
     }
 
