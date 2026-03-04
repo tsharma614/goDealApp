@@ -21,7 +21,7 @@ struct GameSetupView: View {
                 Section("Opponents") {
                     Stepper(
                         "\(setup.cpuCount) CPU Opponent\(setup.cpuCount > 1 ? "s" : "")",
-                        value: $setup.cpuCount, in: 1...3
+                        value: $setup.cpuCount, in: 1...4
                     )
                     Text("Total players: \(setup.cpuCount + 1)")
                         .font(.caption)
@@ -47,6 +47,10 @@ struct GameSetupView: View {
                             Label("CPU uses smart strategies. A fair challenge.", systemImage: "brain.fill")
                                 .font(.caption)
                                 .foregroundStyle(.orange)
+                        case .hard:
+                            Label("CPU hunts the leader and blocks your wins.", systemImage: "flame.fill")
+                                .font(.caption)
+                                .foregroundStyle(.red)
                         }
                     }
                     .padding(.vertical, 4)

@@ -99,7 +99,7 @@ final class GameKitMatchmaker {
 
         let request = GKMatchRequest()
         request.minPlayers = 2
-        request.maxPlayers = max(2, min(4, maxPlayers))
+        request.maxPlayers = max(2, min(5, maxPlayers))
         request.playerGroup = group
 
         // 60-second timeout: cancel GK matchmaker, which triggers the completion handler with an error.

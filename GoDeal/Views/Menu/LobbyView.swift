@@ -139,11 +139,11 @@ struct LobbyView: View {
         VStack(alignment: .leading, spacing: 10) {
             let totalCount = session.connectedPeers.count + 1
             HStack {
-                Text("Players (\(totalCount)/4)")
+                Text("Players (\(totalCount)/5)")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
-                if totalCount >= 4 {
+                if totalCount >= 5 {
                     Text("Full")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.orange)

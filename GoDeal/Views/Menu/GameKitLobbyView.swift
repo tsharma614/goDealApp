@@ -124,7 +124,7 @@ struct GameKitLobbyView: View {
             .background(.quaternary, in: RoundedRectangle(cornerRadius: 16))
             .padding(.horizontal)
 
-            Button { startSearch(code: generatedCode) } label: {
+            Button { startSearch(code: generatedCode, maxPlayers: 5) } label: {
                 Label("Wait for Players", systemImage: "person.wave.2.fill")
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 4)
@@ -156,7 +156,7 @@ struct GameKitLobbyView: View {
             .padding(.horizontal)
 
             Button {
-                startSearch(code: joinCode.uppercased().trimmingCharacters(in: .whitespaces))
+                startSearch(code: joinCode.uppercased().trimmingCharacters(in: .whitespaces), maxPlayers: 5)
             } label: {
                 Label("Join Room", systemImage: "arrow.right.circle.fill")
                     .frame(maxWidth: .infinity)
@@ -224,11 +224,11 @@ struct GameKitLobbyView: View {
         VStack(alignment: .leading, spacing: 10) {
             let totalCount = session.connectedPeerNames.count + 1
             HStack {
-                Text("Players (\(totalCount)/4)")
+                Text("Players (\(totalCount)/5)")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
-                if totalCount >= 4 {
+                if totalCount >= 5 {
                     Text("Full")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.orange)
@@ -317,12 +317,12 @@ struct GameKitLobbyView: View {
 
     // MARK: - Actions
 
-    private func startSearch(code: String) {
+    private func startSearch(code: String, maxPlayers: Int = 5) {
         guard !code.isEmpty else { return }
         errorMessage = nil
         Task {
             do {
-                let (match, role) = try await matchmaker.createOrJoinMatch(roomCode: code, maxPlayers: 4)
+                let (match, role) = try await matchmaker.createOrJoinMatch(roomCode: code, maxPlayers: maxPlayers)
                 let session = GameKitSession(match: match, role: role)
                 // Compute local player index from sorted IDs (consistent with host assignment)
                 let allIDs = ([GKLocalPlayer.local.gamePlayerID]

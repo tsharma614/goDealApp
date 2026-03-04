@@ -5,6 +5,7 @@ import Foundation
 enum AIDifficulty: String, CaseIterable {
     case easy
     case medium
+    case hard
 }
 
 // MARK: - AI Decision
@@ -44,6 +45,7 @@ enum AIStrategy {
         switch difficulty {
         case .easy:   return easyDecision(state: state, playerIndex: playerIndex)
         case .medium: return mediumDecision(state: state, playerIndex: playerIndex)
+        case .hard:   return hardDecision(state: state, playerIndex: playerIndex)
         }
     }
 
@@ -110,6 +112,90 @@ enum AIStrategy {
         return easyDecision(state: state, playerIndex: playerIndex)
     }
 
+    // MARK: - Hard Strategy (target the leader, always block wins)
+
+    private static func hardDecision(state: GameState, playerIndex: Int) -> AIDecision? {
+        guard state.canPlayCard else { return nil }
+        let hand = state.players[playerIndex].hand
+        let player = state.players[playerIndex]
+        let otherIndices = state.otherPlayerIndices()
+
+        // Identify the leader: player closest to winning (most complete sets, then most total properties).
+        let leaderIndex = otherIndices.max(by: {
+            let a = state.players[$0]
+            let b = state.players[$1]
+            if a.completedSets != b.completedSets { return a.completedSets < b.completedSets }
+            return a.allPropertyCards.count < b.allPropertyCards.count
+        })
+
+        // 1. Win immediately: Deal Snatcher to reach 3 sets
+        if let decision = tryDealSnatcher(hand: hand, state: state, playerIndex: playerIndex, winningOnly: true) {
+            return decision
+        }
+
+        // 2. Block the leader from winning: steal their complete set if they're at 2+ sets
+        if let leader = leaderIndex, state.players[leader].completedSets >= 2 {
+            if let decision = tryDealSnatcterAgainst(hand: hand, state: state, playerIndex: playerIndex, targetIndex: leader) {
+                return decision
+            }
+        }
+
+        // 3. Quick Grab a set-completing property for ourselves
+        if let decision = tryStealSetCompleting(hand: hand, state: state, playerIndex: playerIndex) {
+            return decision
+        }
+
+        // 4. Play Double Up before rent for maximum impact
+        if let decision = tryDoubleUpThenRent(hand: hand, state: state, playerIndex: playerIndex) {
+            return decision
+        }
+
+        // 5. Play rent targeting the leader (any rent >= $2M against them, or any threshold >= $3M)
+        if let leader = leaderIndex,
+           let decision = tryRentAgainst(hand: hand, state: state, playerIndex: playerIndex, preferredTarget: leader, threshold: 2) {
+            return decision
+        }
+        if let decision = tryHighValueRent(hand: hand, state: state, playerIndex: playerIndex, threshold: 3) {
+            return decision
+        }
+
+        // 6. Property that advances our best partial set
+        if let decision = tryBestProperty(hand: hand, state: state, playerIndex: playerIndex) {
+            return decision
+        }
+
+        // 7. Offensive steal against leader even if it doesn't complete our set
+        if let leader = leaderIndex {
+            if let decision = tryOffensiveSteal(hand: hand, state: state, playerIndex: playerIndex, targetIndex: leader) {
+                return decision
+            }
+        }
+
+        // 8. Corner Store / Tower Block on a complete set
+        if let decision = tryImprovement(hand: hand, state: state, playerIndex: playerIndex) {
+            return decision
+        }
+
+        // 9. Deal Forward if hand <= 3 cards
+        if player.hand.count <= 3,
+           let dealFwd = hand.first(where: { if case .action(.dealForward) = $0.type { return true }; return false }) {
+            return AIDecision(card: dealFwd, destination: .action)
+        }
+
+        // 10. Bank money
+        if let decision = tryBankMoney(hand: hand, playerIndex: playerIndex) {
+            return decision
+        }
+
+        // 11. Collect Now / Big Spender
+        if let decision = tryIncomeAction(hand: hand, state: state, playerIndex: playerIndex) {
+            return decision
+        }
+
+        // 12. Any valid play
+        return easyDecision(state: state, playerIndex: playerIndex)
+    }
+
     // MARK: - No Deal! Decision
 
     /// Should the CPU play No Deal! in response to an attack?
@@ -127,10 +213,30 @@ enum AIStrategy {
             return Double.random(in: 0...1) < 0.3 ? noDealCard : nil
         }
 
-        // Medium: protect complete sets or block wins
         guard case .action(let actionType) = actionCard.type else { return nil }
         let player = state.players[playerIndex]
 
+        if difficulty == .hard {
+            // Hard: always block attacks when they'd hurt us meaningfully
+            switch actionType {
+            case .dealSnatcher:
+                // Always block — never let anyone steal a complete set from us
+                return player.completedSets > 0 ? noDealCard : nil
+            case .quickGrab:
+                // Block if we have any property (can't afford to lose progress)
+                return !player.allPropertyCards.isEmpty ? noDealCard : nil
+            case .swapIt:
+                // Always block if we have any properties
+                return !player.allPropertyCards.isEmpty ? noDealCard : nil
+            case .collectNow, .bigSpender:
+                // Block if we'd pay more than $1M
+                return player.bankTotal > 1 ? noDealCard : nil
+            default:
+                return nil
+            }
+        }
+
+        // Medium: protect complete sets or block wins
         switch actionType {
         case .dealSnatcher:
             // Always protect if we have a complete set
@@ -342,6 +448,124 @@ enum AIStrategy {
                     return AIDecision(card: card, destination: .action, targetPlayerIndex: richestTarget)
                 case .bigSpender:
                     return AIDecision(card: card, destination: .action)
+                default: break
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Steal a complete set specifically from a given target (hard CPU blocker).
+    private static func tryDealSnatcterAgainst(
+        hand: [Card],
+        state: GameState,
+        playerIndex: Int,
+        targetIndex: Int
+    ) -> AIDecision? {
+        guard let snatcher = hand.first(where: { if case .action(.dealSnatcher) = $0.type { return true }; return false }) else { return nil }
+        let completeSets = state.players[targetIndex].properties.filter { $0.value.isComplete }
+        guard let color = completeSets.keys.first else { return nil }
+        return AIDecision(card: snatcher, destination: .action, targetPlayerIndex: targetIndex, targetPropertyColor: color)
+    }
+
+    /// Try to play a rent card targeting a specific player (hard CPU prefers hitting the leader).
+    private static func tryRentAgainst(
+        hand: [Card],
+        state: GameState,
+        playerIndex: Int,
+        preferredTarget: Int,
+        threshold: Int
+    ) -> AIDecision? {
+        let player = state.players[playerIndex]
+        for card in hand {
+            switch card.type {
+            case .rent(let colors):
+                let best = colors
+                    .compactMap { color -> (PropertyColor, Int)? in
+                        guard let set = player.properties[color] else { return nil }
+                        return (color, set.currentRent)
+                    }
+                    .max(by: { $0.1 < $1.1 })
+                if let (color, rent) = best, rent >= threshold {
+                    return AIDecision(card: card, destination: .rent(color))
+                }
+            case .wildRent:
+                let best = player.properties.values
+                    .map { ($0.color, $0.currentRent) }
+                    .max(by: { $0.1 < $1.1 })
+                if let (color, rent) = best, rent >= threshold {
+                    return AIDecision(card: card, destination: .rent(color), targetPlayerIndex: preferredTarget)
+                }
+            default: break
+            }
+        }
+        return nil
+    }
+
+    /// Play Double Up only when a rent card is also available (maximizes value).
+    private static func tryDoubleUpThenRent(
+        hand: [Card],
+        state: GameState,
+        playerIndex: Int
+    ) -> AIDecision? {
+        let player = state.players[playerIndex]
+        guard hand.contains(where: { if case .action(.doubleUp) = $0.type { return true }; return false }) else { return nil }
+
+        // Only worth it if we have a rent card and own at least one property set
+        let hasRent = hand.contains(where: {
+            switch $0.type {
+            case .rent, .wildRent: return true
+            default: return false
+            }
+        })
+        guard hasRent, !player.properties.isEmpty else { return nil }
+
+        let doubleUp = hand.first(where: { if case .action(.doubleUp) = $0.type { return true }; return false })!
+        return AIDecision(card: doubleUp, destination: .action)
+    }
+
+    /// Play a steal card (quickGrab/swapIt) offensively against a target even if it doesn't complete our set.
+    private static func tryOffensiveSteal(
+        hand: [Card],
+        state: GameState,
+        playerIndex: Int,
+        targetIndex: Int
+    ) -> AIDecision? {
+        let target = state.players[targetIndex]
+        guard !target.allPropertyCards.isEmpty else { return nil }
+
+        if let grabCard = hand.first(where: { if case .action(.quickGrab) = $0.type { return true }; return false }),
+           target.properties.values.contains(where: { !$0.isComplete && !$0.properties.isEmpty }) {
+            return AIDecision(card: grabCard, destination: .action, targetPlayerIndex: targetIndex)
+        }
+
+        let player = state.players[playerIndex]
+        if let swapCard = hand.first(where: { if case .action(.swapIt) = $0.type { return true }; return false }),
+           !player.allPropertyCards.isEmpty {
+            return AIDecision(card: swapCard, destination: .action, targetPlayerIndex: targetIndex)
+        }
+
+        return nil
+    }
+
+    /// Play Corner Store or Tower Block on a complete set.
+    private static func tryImprovement(
+        hand: [Card],
+        state: GameState,
+        playerIndex: Int
+    ) -> AIDecision? {
+        let player = state.players[playerIndex]
+        for card in hand {
+            if case .action(let type) = card.type {
+                switch type {
+                case .cornerStore:
+                    if let color = player.properties.first(where: { $0.value.canAddCornerStore })?.key {
+                        return AIDecision(card: card, destination: .action, targetPropertyColor: color)
+                    }
+                case .apartmentBuilding:
+                    if let color = player.properties.first(where: { $0.value.canAddApartmentBuilding })?.key {
+                        return AIDecision(card: card, destination: .action, targetPropertyColor: color)
+                    }
                 default: break
                 }
             }

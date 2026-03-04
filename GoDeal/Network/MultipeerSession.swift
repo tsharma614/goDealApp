@@ -188,13 +188,13 @@ extension MultipeerSession: MCSessionDelegate {
 
 extension MultipeerSession: MCNearbyServiceAdvertiserDelegate {
 
-    /// Host auto-accepts invitations up to 3 guests (4 players total).
+    /// Host auto-accepts invitations up to 4 guests (5 players total).
     nonisolated func advertiser(_ advertiser: MCNearbyServiceAdvertiser,
                                 didReceiveInvitationFromPeer peerID: MCPeerID,
                                 withContext context: Data?,
                                 invitationHandler: @escaping (Bool, MCSession?) -> Void) {
         Task { @MainActor in
-            let accept = self.connectedPeers.count < 3
+            let accept = self.connectedPeers.count < 4
             invitationHandler(accept, accept ? self.session : nil)
         }
     }

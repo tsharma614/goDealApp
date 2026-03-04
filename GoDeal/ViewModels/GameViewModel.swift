@@ -8,7 +8,7 @@ import GameKit
 struct GameSetup {
     var humanPlayerName: String = ""
     var cpuDifficulty: AIDifficulty = .medium
-    var cpuCount: Int = 1   // 1–3 CPU opponents
+    var cpuCount: Int = 1   // 1–4 CPU opponents
 }
 
 // MARK: - Game View Model
@@ -92,7 +92,7 @@ final class GameViewModel {
     init(setup: GameSetup = GameSetup()) {
         let humanName = setup.humanPlayerName.trimmingCharacters(in: .whitespaces)
         let humanPlayer = Player(name: humanName.isEmpty ? "You" : humanName, isHuman: true)
-        let cpuCount = max(1, min(3, setup.cpuCount))
+        let cpuCount = max(1, min(4, setup.cpuCount))
 
         // Pick random CPU names, excluding the human's name
         var namePool = Self.cpuNamePool
