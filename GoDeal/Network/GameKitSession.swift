@@ -12,8 +12,9 @@ final class GameKitSession: NSObject, NetworkSession {
     // MARK: - NetworkSession conformance
 
     let role: MCRole
-    var connectedPeerIDs: [String] { match.players.map { $0.gamePlayerID } }
-    var connectedPeerNames: [String] { match.players.map { $0.displayName } }
+    /// Stored + observable so lobby views can react when new players join mid-wait.
+    var connectedPeerIDs: [String] = []
+    var connectedPeerNames: [String] = []
     var assignedPlayerIndex: Int = 0
     var gameStartReceived: Bool = false
     var onReceive: ((NetworkMessage, String) -> Void)?
@@ -31,6 +32,8 @@ final class GameKitSession: NSObject, NetworkSession {
     init(match: GKMatch, role: MCRole) {
         self.match = match
         self.role = role
+        self.connectedPeerIDs = match.players.map { $0.gamePlayerID }
+        self.connectedPeerNames = match.players.map { $0.displayName }
         super.init()
         match.delegate = self
         log.event("[GKSession] session created — role=\(role == .host ? "host" : "guest") peers=\(match.players.map { $0.displayName })")
@@ -99,7 +102,15 @@ extension GameKitSession: GKMatchDelegate {
 
     nonisolated func match(_ match: GKMatch, player: GKPlayer, didChange state: GKPlayerConnectionState) {
         Task { @MainActor in
-            if state == .disconnected {
+            if state == .connected {
+                if !self.connectedPeerIDs.contains(player.gamePlayerID) {
+                    self.connectedPeerIDs.append(player.gamePlayerID)
+                    self.connectedPeerNames.append(player.displayName)
+                    self.log.event("[GKSession] player \(player.displayName) connected (total peers: \(self.connectedPeerIDs.count))")
+                }
+            } else if state == .disconnected {
+                self.connectedPeerIDs.removeAll { $0 == player.gamePlayerID }
+                self.connectedPeerNames.removeAll { $0 == player.displayName }
                 self.log.warn("[GKSession] player \(player.displayName) disconnected")
                 self.onDisconnect?()
             }
