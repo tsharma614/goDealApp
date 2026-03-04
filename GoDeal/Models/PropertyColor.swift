@@ -55,6 +55,21 @@ enum PropertyColor: String, CaseIterable, Hashable, Codable {
         return rentTable[index]
     }
 
+    var colorDot: String {
+        switch self {
+        case .rustDistrict:   return "🟤"
+        case .skylineAve:     return "🩵"
+        case .neonRow:        return "🩷"
+        case .sunsetStrip:    return "🟠"
+        case .hotZone:        return "🔴"
+        case .goldRush:       return "🟡"
+        case .emeraldQuarter: return "🟢"
+        case .blueChip:       return "🔵"
+        case .transitLine:    return "⚫"
+        case .powerAndWater:  return "⚡"
+        }
+    }
+
     var displayName: String {
         switch self {
         case .rustDistrict:   return "Rust District"

@@ -462,15 +462,21 @@ struct GameBoardView: View {
                 }
                 if pendingActionCanPlay {
                     Button("Play as action") {
-                        let myProps = viewModel.humanPlayer?.properties ?? [:]
                         let isCornerStore: Bool = { if case .action(.cornerStore) = card.type { return true }; return false }()
-                        let eligibleCount = isCornerStore
-                            ? myProps.filter { $0.value.canAddCornerStore }.count
-                            : myProps.filter { $0.value.canAddApartmentBuilding }.count
+                        let isApartmentBuilding: Bool = { if case .action(.apartmentBuilding) = card.type { return true }; return false }()
                         pendingActionCard = nil
-                        if eligibleCount > 1 {
-                            // Multiple eligible sets — let user pick which one
-                            pendingImprovementCard = card
+                        if isCornerStore || isApartmentBuilding {
+                            let myProps = viewModel.humanPlayer?.properties ?? [:]
+                            let eligibleCount = isCornerStore
+                                ? myProps.filter { $0.value.canAddCornerStore }.count
+                                : myProps.filter { $0.value.canAddApartmentBuilding }.count
+                            if eligibleCount > 1 {
+                                // Multiple eligible sets — let user pick which one
+                                pendingImprovementCard = card
+                            } else {
+                                viewModel.playAction(cardId: card.id)
+                                selectedCardId = nil
+                            }
                         } else {
                             viewModel.playAction(cardId: card.id)
                             selectedCardId = nil

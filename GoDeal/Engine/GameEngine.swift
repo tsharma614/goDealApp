@@ -68,7 +68,7 @@ final class GameEngine {
             let setCount = state.players[playerIndex].properties[color]?.properties.count ?? 0
             let setSize = color.setSize
             log.event("[\(player.name)] placed '\(card.name)' in \(color.displayName) [\(setCount)/\(setSize)]")
-            log.addActivity("\(player.name) → \(color.displayName): \(card.name)")
+            log.addActivity("\(player.name) → \(color.colorDot)")
             checkWinAndAdvance()
 
         case .action:
@@ -327,6 +327,14 @@ final class GameEngine {
 
     // MARK: - Property Choice Resolution
 
+    /// Returns the PropertyColor a given card belongs to in a player's properties.
+    private func propertyColor(of cardId: UUID, for playerIndex: Int) -> PropertyColor? {
+        for (color, set) in state.players[playerIndex].properties {
+            if set.properties.contains(where: { $0.id == cardId }) { return color }
+        }
+        return nil
+    }
+
     func resolvePropertyChoice(
         purpose: PropertyChoicePurpose,
         selectedCardId: UUID? = nil,
@@ -344,6 +352,7 @@ final class GameEngine {
                     color: color,
                     state: &state
                 )
+                log.addActivity("\(state.players[chooser].name) snatched \(color.colorDot) from \(state.players[targetIdx].name)")
             } else {
                 log.event("[\(state.players[chooser].name)] Deal Snatcher cancelled (no color selected)")
             }
@@ -352,12 +361,14 @@ final class GameEngine {
         case .quickGrab(let targetIdx):
             if let cardId = selectedCardId {
                 log.event("[\(state.players[chooser].name)] Quick Grab chose card id=\(cardId) from \(state.players[targetIdx].name)")
+                let dot = propertyColor(of: cardId, for: targetIdx)?.colorDot ?? "?"
                 ActionResolver.executeQuickGrab(
                     attackerIndex: chooser,
                     targetIndex: targetIdx,
                     cardId: cardId,
                     state: &state
                 )
+                log.addActivity("\(state.players[chooser].name) grabbed \(dot) from \(state.players[targetIdx].name)")
             } else {
                 log.event("[\(state.players[chooser].name)] Quick Grab cancelled (no card selected)")
             }
@@ -366,6 +377,8 @@ final class GameEngine {
         case .swapIt(let targetIdx):
             if let myCardId = selectedCardId, let theirCardId = secondaryCardId {
                 log.event("[\(state.players[chooser].name)] Swap It chose my=\(myCardId) ↔ their=\(theirCardId) with \(state.players[targetIdx].name)")
+                let myDot = propertyColor(of: myCardId, for: chooser)?.colorDot ?? "?"
+                let theirDot = propertyColor(of: theirCardId, for: targetIdx)?.colorDot ?? "?"
                 ActionResolver.executeSwapIt(
                     attackerIndex: chooser,
                     targetIndex: targetIdx,
@@ -373,6 +386,7 @@ final class GameEngine {
                     targetCardId: theirCardId,
                     state: &state
                 )
+                log.addActivity("\(state.players[chooser].name) swapped \(myDot) ↔ \(theirDot) with \(state.players[targetIdx].name)")
             } else {
                 log.event("[\(state.players[chooser].name)] Swap It cancelled (cards not selected)")
             }
@@ -383,12 +397,14 @@ final class GameEngine {
             guard case .awaitingPropertyChoice(let victimIdx, _) = state.phase else { return }
             if let cardId = selectedCardId {
                 log.event("[\(state.players[victimIdx].name)] Quick Grab victim chose to give card id=\(cardId) to \(state.players[attackerIdx].name)")
+                let dot = propertyColor(of: cardId, for: victimIdx)?.colorDot ?? "?"
                 ActionResolver.executeQuickGrab(
                     attackerIndex: attackerIdx,
                     targetIndex: victimIdx,
                     cardId: cardId,
                     state: &state
                 )
+                log.addActivity("\(state.players[attackerIdx].name) grabbed \(dot) from \(state.players[victimIdx].name)")
             } else {
                 log.event("[\(state.players[victimIdx].name)] Quick Grab victim made no selection — auto-resolving")
             }
@@ -405,6 +421,7 @@ final class GameEngine {
                     color: color,
                     state: &state
                 )
+                log.addActivity("\(state.players[attackerIdx].name) snatched \(color.colorDot) from \(state.players[victimIdx].name)")
             } else {
                 log.event("[\(state.players[victimIdx].name)] Deal Snatcher victim made no selection — auto-resolving")
             }
@@ -415,6 +432,8 @@ final class GameEngine {
             guard case .awaitingPropertyChoice(let victimIdx, _) = state.phase else { return }
             if let victimCardId = selectedCardId, let attackerCardId = secondaryCardId {
                 log.event("[\(state.players[victimIdx].name)] Swap It victim chose their=\(victimCardId) ↔ attacker=\(attackerCardId)")
+                let theirDot = propertyColor(of: victimCardId, for: victimIdx)?.colorDot ?? "?"
+                let myDot = propertyColor(of: attackerCardId, for: attackerIdx)?.colorDot ?? "?"
                 ActionResolver.executeSwapIt(
                     attackerIndex: attackerIdx,
                     targetIndex: victimIdx,
@@ -422,6 +441,7 @@ final class GameEngine {
                     targetCardId: victimCardId,
                     state: &state
                 )
+                log.addActivity("\(state.players[attackerIdx].name) swapped \(myDot) ↔ \(theirDot) with \(state.players[victimIdx].name)")
             } else {
                 log.event("[\(state.players[victimIdx].name)] Swap It victim made no selection — auto-resolving")
             }
