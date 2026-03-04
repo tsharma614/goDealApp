@@ -728,8 +728,8 @@ final class GameViewModel {
             let creditor = state.players[creditorIdx].name
             let debtor = state.players[debtorIdx].name
             log.addActivity("\(creditor) → \(debtor): pay $\(amount)M")
-        case .awaitingResponse(_, let actionCard, let attackerIdx):
-            log.addActivity("\(state.players[attackerIdx].name) played \(actionCard.name)")
+        case .awaitingResponse:
+            break
         case .gameOver(let w):
             log.addActivity("🏆 \(state.players[w].name) wins!")
         default:
@@ -923,10 +923,16 @@ final class GameViewModel {
             return "Will steal one of your complete sets"
 
         case .swapIt:
-            let humanProps = target.properties.values.flatMap { $0.properties }
-            let cpuProps = attacker.properties.values.flatMap { $0.properties }
-            if let humanCard = humanProps.max(by: { $0.monetaryValue < $1.monetaryValue }),
-               let cpuCard = cpuProps.min(by: { $0.monetaryValue < $1.monetaryValue }) {
+            // Filter to incomplete sets to match Swap It rules and CPU execution logic
+            let humanProps = target.properties.values.filter { !$0.isComplete }.flatMap { $0.properties }
+            let cpuProps = attacker.properties.values.filter { !$0.isComplete }.flatMap { $0.properties }
+            let valueDesc: (Card, Card) -> Bool = {
+                $0.monetaryValue != $1.monetaryValue
+                    ? $0.monetaryValue < $1.monetaryValue
+                    : $0.id.uuidString < $1.id.uuidString
+            }
+            if let humanCard = humanProps.max(by: valueDesc),
+               let cpuCard = cpuProps.min(by: valueDesc) {
                 return "Will take your \(humanCard.name), give you \(cpuCard.name)"
             }
             return "Will swap one of your properties"

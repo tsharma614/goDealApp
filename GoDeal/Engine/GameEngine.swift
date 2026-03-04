@@ -299,11 +299,16 @@ final class GameEngine {
                 state.phase = .playing
                 log.addActivity("\(state.players[attackerIndex].name) swapped \(myDot) ↔ \(theirDot) with \(state.players[targetIdx].name)")
             } else if !state.players[attackerIndex].isHuman {
-                // CPU attacker — auto-trade worst of own for best of target
-                let targetProps = state.players[targetIdx].properties.values.flatMap { $0.properties }
-                let attackerProps = state.players[attackerIndex].properties.values.flatMap { $0.properties }
-                if let targetCard = targetProps.max(by: { $0.monetaryValue < $1.monetaryValue }),
-                   let attackerCard = attackerProps.min(by: { $0.monetaryValue < $1.monetaryValue }) {
+                // CPU attacker — auto-trade worst of own incomplete set for best of target's incomplete set
+                let targetProps = state.players[targetIdx].properties.values.filter { !$0.isComplete }.flatMap { $0.properties }
+                let attackerProps = state.players[attackerIndex].properties.values.filter { !$0.isComplete }.flatMap { $0.properties }
+                let valueDesc: (Card, Card) -> Bool = {
+                    $0.monetaryValue != $1.monetaryValue
+                        ? $0.monetaryValue < $1.monetaryValue
+                        : $0.id.uuidString < $1.id.uuidString
+                }
+                if let targetCard = targetProps.max(by: valueDesc),
+                   let attackerCard = attackerProps.min(by: valueDesc) {
                     let myDot = propertyColor(of: attackerCard.id, for: attackerIndex)?.colorDot ?? "?"
                     let theirDot = propertyColor(of: targetCard.id, for: targetIdx)?.colorDot ?? "?"
                     log.event("[\(state.players[attackerIndex].name)] Swap It auto-selects '\(targetCard.name)' ↔ '\(attackerCard.name)' with \(state.players[targetIdx].name)")

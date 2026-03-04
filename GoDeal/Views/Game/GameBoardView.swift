@@ -24,6 +24,7 @@ struct GameBoardView: View {
     @State private var pendingImprovementCard: Card? = nil  // corner store / tower block multi-set picker
     @State private var drawFeedbackCount: Int? = nil         // "+N" badge shown briefly after drawing
     @State private var handCountBeforeDraw: Int = 0
+    @State private var dealForwardPending: Bool = false
     @State private var propertyLostFlash: Bool = false        // red glow on whole properties section
     @State private var flashingPropertyColors: Set<PropertyColor> = []  // red border on individual sets
 
@@ -53,6 +54,12 @@ struct GameBoardView: View {
 
     private let logger = GameLogger.shared
 
+    // Brand palette (matches main menu)
+    private let orange     = Color(red: 0.96, green: 0.65, blue: 0.22)
+    private let orangeDark = Color(red: 0.82, green: 0.48, blue: 0.08)
+    private let blue       = Color(red: 0.22, green: 0.62, blue: 0.92)
+    private let felt       = Color(red: 0.07, green: 0.20, blue: 0.12)
+
     var body: some View {
         @Bindable var vm = viewModel
 
@@ -68,13 +75,29 @@ struct GameBoardView: View {
             let divPad: CGFloat = h < 750 ? 1 : h < 900 ? 2 : 3
 
             ZStack {
-                // Background
-                LinearGradient(
-                    colors: [Color(UIColor.systemBackground), Color.green.opacity(0.04)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
+                // Felt background
+                felt.ignoresSafeArea()
+                Canvas { ctx, size in
+                    let suits = ["♠", "♥", "♦", "♣"]
+                    let step: CGFloat = 58
+                    let rows = Int(size.height / step) + 3
+                    let cols = Int(size.width  / step) + 3
+                    for row in 0..<rows {
+                        let xOffset: CGFloat = row % 2 == 0 ? 0 : step / 2
+                        for col in 0..<cols {
+                            let suit = suits[(row + col) % 4]
+                            let x = CGFloat(col) * step + xOffset - step
+                            let y = CGFloat(row) * step - step
+                            ctx.draw(
+                                Text(suit).font(.system(size: 20)).foregroundStyle(Color.white.opacity(0.045)),
+                                at: CGPoint(x: x, y: y), anchor: .center
+                            )
+                        }
+                    }
+                }
                 .ignoresSafeArea()
+                RadialGradient(colors: [.clear, .black.opacity(0.45)], center: .center, startRadius: 180, endRadius: 500)
+                    .ignoresSafeArea()
 
                 VStack(spacing: 0) {
                     // Top bar
@@ -178,6 +201,7 @@ struct GameBoardView: View {
                         .padding(.vertical, h < 750 ? 3 : h < 900 ? 4 : 8)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .colorScheme(.dark)
 
                 // Game Over overlay
                 if case .gameOver(let winnerIdx) = viewModel.state.phase {
@@ -478,6 +502,14 @@ struct GameBoardView: View {
                                 selectedCardId = nil
                             }
                         } else {
+                            let isDealForward: Bool = {
+                                if case .action(.dealForward) = card.type { return true }
+                                return false
+                            }()
+                            if isDealForward {
+                                handCountBeforeDraw = viewModel.humanPlayer?.hand.count ?? 0
+                                dealForwardPending = true
+                            }
                             viewModel.playAction(cardId: card.id)
                             selectedCardId = nil
                         }
@@ -815,6 +847,18 @@ struct GameBoardView: View {
             }
             viewModel.handlePhaseChange()
         }
+        .onChange(of: viewModel.humanPlayer?.hand.count ?? 0) { _, newCount in
+            guard dealForwardPending else { return }
+            dealForwardPending = false
+            let drawn = newCount - handCountBeforeDraw
+            if drawn > 0 {
+                withAnimation(.spring(response: 0.3)) { drawFeedbackCount = drawn }
+                Task {
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    withAnimation(.easeOut(duration: 0.4)) { drawFeedbackCount = nil }
+                }
+            }
+        }
         .onAppear {
             // Kick off phase handling on first display (onChange only fires on changes, not initial value).
             if case .drawing = viewModel.state.phase {
@@ -872,11 +916,15 @@ struct GameBoardView: View {
             }
             .padding(.trailing, 4)
 
-            Text("Go! Deal!")
-                .font(.headline.weight(.black))
-                .foregroundStyle(
-                    LinearGradient(colors: [.blue, .purple], startPoint: .leading, endPoint: .trailing)
-                )
+            HStack(spacing: 6) {
+                Image("GoDealLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(height: 28)
+                Text("GO! DEAL!")
+                    .font(.headline.weight(.black))
+                    .foregroundStyle(blue)
+            }
 
             Spacer()
 
@@ -928,7 +976,7 @@ struct GameBoardView: View {
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
-                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 10))
+                        .background(.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
                         .foregroundStyle(.white)
                 }
             }
@@ -936,11 +984,12 @@ struct GameBoardView: View {
             // "+N cards" badge shown briefly after drawing
             if let n = drawFeedbackCount {
                 Text("+\(n) cards")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.accentColor)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(orange)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .background(orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(orange.opacity(0.5), lineWidth: 1))
                     .transition(.scale(scale: 0.8).combined(with: .opacity))
             }
 
@@ -954,7 +1003,10 @@ struct GameBoardView: View {
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
-                        .background(Color.green, in: RoundedRectangle(cornerRadius: 10))
+                        .background(
+                            LinearGradient(colors: [orange, orangeDark], startPoint: .top, endPoint: .bottom),
+                            in: RoundedRectangle(cornerRadius: 10)
+                        )
                         .foregroundStyle(.white)
                 }
             }
@@ -1033,6 +1085,15 @@ struct GameBoardView: View {
                             .foregroundStyle(.black)
                     }
                 }
+
+                Button {
+                    onExit?()
+                } label: {
+                    Text("Quit to Menu")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.55))
+                }
+                .buttonStyle(.plain)
             }
             .padding(40)
         }
