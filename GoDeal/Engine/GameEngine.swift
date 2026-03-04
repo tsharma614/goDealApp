@@ -68,12 +68,25 @@ final class GameEngine {
             let setCount = state.players[playerIndex].properties[color]?.properties.count ?? 0
             let setSize = color.setSize
             log.event("[\(player.name)] placed '\(card.name)' in \(color.displayName) [\(setCount)/\(setSize)]")
-            log.addActivity("\(player.name) → \(color.colorDot)")
+            let dot: String = {
+                if case .wildProperty = card.type { return "🌈" }
+                return color.colorDot
+            }()
+            log.addActivity("\(player.name) → \(dot)")
             checkWinAndAdvance()
 
         case .action:
             state.discardPile.append(card)
-            log.addActivity("\(player.name) played \(card.name)")
+            // Steal actions log their own descriptive entry on execution; skip generic "played" for them
+            let isSteal: Bool = {
+                if case .action(let t) = card.type {
+                    return t == .dealSnatcher || t == .quickGrab || t == .swapIt
+                }
+                return false
+            }()
+            if !isSteal {
+                log.addActivity("\(player.name) played \(card.name)")
+            }
             do {
                 try ActionResolver.resolve(
                     card: card,
@@ -210,6 +223,7 @@ final class GameEngine {
                 ActionResolver.executeDealSnatcher(attackerIndex: attackerIndex, targetIndex: targetIdx, color: preColor, state: &state)
                 state.pendingSteal = PendingStealPreSelection()
                 state.phase = .playing
+                log.addActivity("\(state.players[attackerIndex].name) snatched \(preColor.colorDot) from \(state.players[targetIdx].name)")
             } else if !state.players[attackerIndex].isHuman {
                 // CPU attacker — steal the target's highest-rent complete set automatically
                 let completeSets = state.players[targetIdx].properties.filter { $0.value.isComplete }
@@ -221,6 +235,7 @@ final class GameEngine {
                         color: color,
                         state: &state
                     )
+                    log.addActivity("\(state.players[attackerIndex].name) snatched \(color.colorDot) from \(state.players[targetIdx].name)")
                 } else {
                     log.warn("[\(state.players[attackerIndex].name)] Deal Snatcher — no complete sets to steal (should have been caught earlier)")
                 }
@@ -238,16 +253,19 @@ final class GameEngine {
             // CPU attacker path only fires when no pre-selection was made.
             if let preCardId = state.pendingSteal.cardId {
                 // Human attacker pre-selected a card before playing
+                let dot = propertyColor(of: preCardId, for: targetIdx)?.colorDot ?? "?"
                 log.event("[\(state.players[attackerIndex].name)] Quick Grab executes with pre-selected card id=\(preCardId)")
                 ActionResolver.executeQuickGrab(attackerIndex: attackerIndex, targetIndex: targetIdx, cardId: preCardId, state: &state)
                 state.pendingSteal = PendingStealPreSelection()
                 state.phase = .playing
+                log.addActivity("\(state.players[attackerIndex].name) grabbed \(dot) from \(state.players[targetIdx].name)")
             } else if !state.players[attackerIndex].isHuman {
                 // CPU attacker — auto-steal best card from target's incomplete sets
                 let stealable = state.players[targetIdx].properties.values
                     .filter { !$0.isComplete }
                     .flatMap { $0.properties }
                 if let best = stealable.max(by: { $0.monetaryValue < $1.monetaryValue }) {
+                    let dot = propertyColor(of: best.id, for: targetIdx)?.colorDot ?? "?"
                     log.event("[\(state.players[attackerIndex].name)] Quick Grab auto-selects '\(best.name)' from \(state.players[targetIdx].name)")
                     ActionResolver.executeQuickGrab(
                         attackerIndex: attackerIndex,
@@ -255,6 +273,7 @@ final class GameEngine {
                         cardId: best.id,
                         state: &state
                     )
+                    log.addActivity("\(state.players[attackerIndex].name) grabbed \(dot) from \(state.players[targetIdx].name)")
                 } else {
                     log.warn("[\(state.players[attackerIndex].name)] Quick Grab — no stealable properties (should have been caught earlier)")
                 }
@@ -272,16 +291,21 @@ final class GameEngine {
             // CPU attacker path only fires when no pre-selection was made.
             if let myCardId = state.pendingSteal.cardId, let theirCardId = state.pendingSteal.secondaryCardId {
                 // Human attacker pre-selected both cards
+                let myDot = propertyColor(of: myCardId, for: attackerIndex)?.colorDot ?? "?"
+                let theirDot = propertyColor(of: theirCardId, for: targetIdx)?.colorDot ?? "?"
                 log.event("[\(state.players[attackerIndex].name)] Swap It executes with pre-selected cards")
                 ActionResolver.executeSwapIt(attackerIndex: attackerIndex, targetIndex: targetIdx, attackerCardId: myCardId, targetCardId: theirCardId, state: &state)
                 state.pendingSteal = PendingStealPreSelection()
                 state.phase = .playing
+                log.addActivity("\(state.players[attackerIndex].name) swapped \(myDot) ↔ \(theirDot) with \(state.players[targetIdx].name)")
             } else if !state.players[attackerIndex].isHuman {
                 // CPU attacker — auto-trade worst of own for best of target
                 let targetProps = state.players[targetIdx].properties.values.flatMap { $0.properties }
                 let attackerProps = state.players[attackerIndex].properties.values.flatMap { $0.properties }
                 if let targetCard = targetProps.max(by: { $0.monetaryValue < $1.monetaryValue }),
                    let attackerCard = attackerProps.min(by: { $0.monetaryValue < $1.monetaryValue }) {
+                    let myDot = propertyColor(of: attackerCard.id, for: attackerIndex)?.colorDot ?? "?"
+                    let theirDot = propertyColor(of: targetCard.id, for: targetIdx)?.colorDot ?? "?"
                     log.event("[\(state.players[attackerIndex].name)] Swap It auto-selects '\(targetCard.name)' ↔ '\(attackerCard.name)' with \(state.players[targetIdx].name)")
                     ActionResolver.executeSwapIt(
                         attackerIndex: attackerIndex,
@@ -290,6 +314,7 @@ final class GameEngine {
                         targetCardId: targetCard.id,
                         state: &state
                     )
+                    log.addActivity("\(state.players[attackerIndex].name) swapped \(myDot) ↔ \(theirDot) with \(state.players[targetIdx].name)")
                 } else {
                     log.warn("[\(state.players[attackerIndex].name)] Swap It — couldn't find cards to swap")
                 }
@@ -539,6 +564,8 @@ final class GameEngine {
 
         state.players[playerIndex].placeProperty(card, in: color)
         state.cardsPlayedThisTurn += 1
+        log.event("[\(state.players[playerIndex].name)] assigned wild '\(card.name)' → \(color.displayName)")
+        log.addActivity("\(state.players[playerIndex].name) → 🌈")
 
         if case .awaitingWildColorChoice = state.phase {
             state.phase = .playing
