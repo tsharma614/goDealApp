@@ -35,6 +35,42 @@ enum MatchmakerError: LocalizedError {
     }
 }
 
+// MARK: - Peer Connection Watcher
+
+/// Temporary GKMatchDelegate that waits for the first remote player to actually connect.
+/// GKMatchmaker's findMatch callback fires before peer-to-peer connections are established,
+/// so this watcher bridges the gap. Replaced by GameKitSession's delegate after connection.
+private final class PeerConnectionWatcher: NSObject, GKMatchDelegate {
+
+    private var continuation: CheckedContinuation<Void, Error>?
+    private let lock = NSLock()
+
+    init(match: GKMatch, continuation: CheckedContinuation<Void, Error>) {
+        self.continuation = continuation
+        super.init()
+        match.delegate = self
+    }
+
+    private func resume(_ result: Result<Void, Error>) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let c = continuation else { return }
+        continuation = nil
+        c.resume(with: result)
+    }
+
+    nonisolated func match(_ match: GKMatch, player: GKPlayer, didChange state: GKPlayerConnectionState) {
+        if state == .connected { resume(.success(())) }
+    }
+
+    nonisolated func match(_ match: GKMatch, didFailWithError error: Error?) {
+        resume(.failure(error ?? MatchmakerError.timeout))
+    }
+
+    // Data arriving during the brief handoff window is dropped (game hasn't started yet).
+    nonisolated func match(_ match: GKMatch, didReceive data: Data, fromRemotePlayer player: GKPlayer) {}
+}
+
 // MARK: - GameKit Matchmaker
 
 /// Creates or joins a GKMatch using a deterministic room-code → playerGroup mapping.
@@ -46,6 +82,8 @@ final class GameKitMatchmaker {
     var isSearching: Bool = false
 
     private let log = GameLogger.shared
+    /// Held strongly so the delegate object lives until the first peer connects.
+    private var peerWatcher: PeerConnectionWatcher?
 
     /// Create or join a match for the given room code.
     /// Returns (match, role). Host = player with lowest gamePlayerID (deterministic, no race).
@@ -72,7 +110,10 @@ final class GameKitMatchmaker {
         }
         defer { timeoutTask.cancel() }
 
-        return try await withCheckedThrowingContinuation { continuation in
+        // Step 1: Get the GKMatch object from GKMatchmaker.
+        // NOTE: findMatch fires its callback as soon as GameKit finds a match slot, but
+        // match.players may be empty at that point — remote peers connect asynchronously.
+        let match: GKMatch = try await withCheckedThrowingContinuation { continuation in
             GKMatchmaker.shared().findMatch(for: request) { [log] match, error in
                 if let error {
                     let nsError = error as NSError
@@ -89,14 +130,28 @@ final class GameKitMatchmaker {
                     continuation.resume(throwing: MatchmakerError.timeout)
                     return
                 }
-                // Deterministic host election: sort all gamePlayerIDs; lowest = host
-                let allIDs = ([GKLocalPlayer.local.gamePlayerID]
-                    + match.players.map { $0.gamePlayerID }).sorted()
-                let role: MCRole = allIDs.first == GKLocalPlayer.local.gamePlayerID ? .host : .guest
-                log.event("[GKMatchmaker] match formed — players: \(match.players.map { $0.displayName }) role=\(role == .host ? "host" : "guest")")
-                continuation.resume(returning: (match, role))
+                continuation.resume(returning: match)
             }
         }
+
+        // Step 2: If remote peers aren't connected yet, wait for the first connection event.
+        // This is the common case — the match object arrives before the P2P link is up.
+        if match.players.isEmpty {
+            log.event("[GKMatchmaker] match slot found — waiting for remote player to connect...")
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                // Store the watcher on self so it lives until the continuation fires.
+                peerWatcher = PeerConnectionWatcher(match: match, continuation: cont)
+            }
+            peerWatcher = nil
+        }
+
+        // Step 3: Deterministic host election — sort all gamePlayerIDs; lowest = host.
+        let allIDs = ([GKLocalPlayer.local.gamePlayerID]
+            + match.players.map { $0.gamePlayerID }).sorted()
+        let role: MCRole = allIDs.first == GKLocalPlayer.local.gamePlayerID ? .host : .guest
+        log.event("[GKMatchmaker] match ready — players: \(match.players.map { $0.displayName }) role=\(role == .host ? "host" : "guest")")
+
+        return (match, role)
     }
 
     func cancel() {
