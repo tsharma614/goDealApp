@@ -10,7 +10,7 @@ struct DiscardSheet: View {
     /// Non-nil when the player still has actions left — lets them cancel and play more cards first
     var onPlayMore: (() -> Void)? = nil
 
-    @State private var discardedCount = 0
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
@@ -24,7 +24,7 @@ struct DiscardSheet: View {
                     Text("Too Many Cards!")
                         .font(.title2.weight(.bold))
 
-                    Text("You have \(hand.count) cards. Discard \(mustDiscard - discardedCount) to reach 7.")
+                    Text("You have \(hand.count) cards. Discard \(mustDiscard) to reach 7.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -40,13 +40,6 @@ struct DiscardSheet: View {
                 }
                 .padding(.top)
 
-                // Progress
-                if mustDiscard > 0 {
-                    ProgressView(value: Double(min(discardedCount, mustDiscard)), total: Double(mustDiscard))
-                        .tint(.orange)
-                        .padding(.horizontal)
-                }
-
                 // Hand grid
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 85))], spacing: 12) {
@@ -58,7 +51,6 @@ struct DiscardSheet: View {
                                     .foregroundStyle(.red)
                             }
                             .onTapGesture {
-                                discardedCount += 1
                                 onDiscard(card.id)
                             }
                         }
@@ -74,6 +66,11 @@ struct DiscardSheet: View {
                         Button("Play More First") { onPlayMore() }
                     }
                 }
+            }
+            // Auto-close as soon as mustDiscard hits 0 — works for both solo and
+            // multiplayer guests (mustDiscard is a live computed value from the parent).
+            .onChange(of: mustDiscard) { _, new in
+                if new <= 0 { dismiss() }
             }
         }
     }
