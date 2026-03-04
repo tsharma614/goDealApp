@@ -45,6 +45,9 @@
 		AA200000000000000000030 /* DeckBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000030 /* DeckBuilderTests.swift */; };
 		AA200000000000000000031 /* GameEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000031 /* GameEngineTests.swift */; };
 		AA200000000000000000032 /* WinCheckerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000032 /* WinCheckerTests.swift */; };
+		AA200000000000000000053 /* ActivityFeedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000053 /* ActivityFeedTests.swift */; };
+		AA200000000000000000054 /* HardAITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000054 /* HardAITests.swift */; };
+		AA200000000000000000055 /* FivePlayerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000055 /* FivePlayerTests.swift */; };
 		AA200000000000000000033 /* PropertyPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000033 /* PropertyPickerSheet.swift */; };
 		AA200000000000000000034 /* CardDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000034 /* CardDetailSheet.swift */; };
 		AA200000000000000000035 /* GameLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000035 /* GameLogger.swift */; };
@@ -112,6 +115,9 @@
 		AA100000000000000000030 /* DeckBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckBuilderTests.swift; sourceTree = "<group>"; };
 		AA100000000000000000031 /* GameEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameEngineTests.swift; sourceTree = "<group>"; };
 		AA100000000000000000032 /* WinCheckerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WinCheckerTests.swift; sourceTree = "<group>"; };
+		AA100000000000000000053 /* ActivityFeedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityFeedTests.swift; sourceTree = "<group>"; };
+		AA100000000000000000054 /* HardAITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HardAITests.swift; sourceTree = "<group>"; };
+		AA100000000000000000055 /* FivePlayerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FivePlayerTests.swift; sourceTree = "<group>"; };
 		AA100000000000000000033 /* PropertyPickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PropertyPickerSheet.swift; sourceTree = "<group>"; };
 		AA100000000000000000034 /* CardDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardDetailSheet.swift; sourceTree = "<group>"; };
 		AA100000000000000000035 /* GameLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameLogger.swift; sourceTree = "<group>"; };
@@ -263,6 +269,9 @@
 				AA100000000000000000030 /* DeckBuilderTests.swift */,
 				AA100000000000000000031 /* GameEngineTests.swift */,
 				AA100000000000000000032 /* WinCheckerTests.swift */,
+				AA100000000000000000053 /* ActivityFeedTests.swift */,
+				AA100000000000000000054 /* HardAITests.swift */,
+				AA100000000000000000055 /* FivePlayerTests.swift */,
 			);
 			path = GoDealTests;
 			sourceTree = "<group>";
@@ -487,6 +496,9 @@
 				AA200000000000000000030 /* DeckBuilderTests.swift in Sources */,
 				AA200000000000000000031 /* GameEngineTests.swift in Sources */,
 				AA200000000000000000032 /* WinCheckerTests.swift in Sources */,
+				AA200000000000000000053 /* ActivityFeedTests.swift in Sources */,
+				AA200000000000000000054 /* HardAITests.swift in Sources */,
+				AA200000000000000000055 /* FivePlayerTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -628,7 +640,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = GoDeal/GoDeal.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = U9782HGY2C;
 				INFOPLIST_FILE = GoDeal/App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
@@ -652,7 +664,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = GoDeal/GoDeal.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = U9782HGY2C;
 				INFOPLIST_FILE = GoDeal/App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
@@ -674,7 +686,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = U9782HGY2C;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
@@ -693,7 +705,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = U9782HGY2C;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
