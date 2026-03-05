@@ -299,9 +299,11 @@ enum ActionResolver {
             set.hasCornerStore = true
             state.players[playerIndex].properties[color] = set
             GameLogger.shared.event("[\(state.players[playerIndex].name)] added Corner Store to \(color.displayName)")
+            GameLogger.shared.addActivity("\(state.players[playerIndex].name) built Corner Store on \(color.displayName)")
         } else if eligible.count == 1, let color = eligible.keys.first {
             state.players[playerIndex].properties[color]?.hasCornerStore = true
             GameLogger.shared.event("[\(state.players[playerIndex].name)] added Corner Store to \(color.displayName) (only eligible set)")
+            GameLogger.shared.addActivity("\(state.players[playerIndex].name) built Corner Store on \(color.displayName)")
         } else {
             // Multiple eligible sets — need UI to pick
             state.phase = .awaitingPropertyChoice(
@@ -327,9 +329,11 @@ enum ActionResolver {
             set.hasApartmentBuilding = true
             state.players[playerIndex].properties[color] = set
             GameLogger.shared.event("[\(state.players[playerIndex].name)] added Apartment Building to \(color.displayName)")
+            GameLogger.shared.addActivity("\(state.players[playerIndex].name) built Apt. Building on \(color.displayName)")
         } else if eligible.count == 1, let color = eligible.keys.first {
             state.players[playerIndex].properties[color]?.hasApartmentBuilding = true
             GameLogger.shared.event("[\(state.players[playerIndex].name)] added Apartment Building to \(color.displayName) (only eligible set)")
+            GameLogger.shared.addActivity("\(state.players[playerIndex].name) built Apt. Building on \(color.displayName)")
         }
     }
 

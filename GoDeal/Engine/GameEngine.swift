@@ -77,14 +77,15 @@ final class GameEngine {
 
         case .action:
             state.discardPile.append(card)
-            // Steal actions log their own descriptive entry on execution; skip generic "played" for them
-            let isSteal: Bool = {
+            // Steal and improvement actions log their own descriptive entries; skip generic "played" for them
+            let skipGenericActivity: Bool = {
                 if case .action(let t) = card.type {
                     return t == .dealSnatcher || t == .quickGrab || t == .swapIt
+                        || t == .cornerStore || t == .apartmentBuilding
                 }
                 return false
             }()
-            if !isSteal {
+            if !skipGenericActivity {
                 log.addActivity("\(player.name) played \(card.name)")
             }
             do {
@@ -496,6 +497,20 @@ final class GameEngine {
     /// Free action: does NOT increment cardsPlayedThisTurn.
     func reassignWild(cardId: UUID, toColor: PropertyColor) {
         let playerIndex = state.currentPlayerIndex
+
+        // Capture improvement state BEFORE removal — Player.removeProperty already clears
+        // hasCornerStore/hasApartmentBuilding when the set becomes incomplete, so we must
+        // snapshot them first to know whether compensation is owed.
+        var savedCornerStore = false
+        var savedApartmentBuilding = false
+        for (_, set) in state.players[playerIndex].properties {
+            if set.properties.contains(where: { $0.id == cardId }) {
+                savedCornerStore = set.hasCornerStore
+                savedApartmentBuilding = set.hasApartmentBuilding
+                break
+            }
+        }
+
         // Remove first, then validate — restore if conditions aren't met
         guard let (card, fromColor) = state.players[playerIndex].removeProperty(id: cardId) else { return }
         guard case .wildProperty(let validColors) = card.type,
@@ -505,14 +520,25 @@ final class GameEngine {
             log.warn("[\(state.players[playerIndex].name)] reassignWild failed — '\(card.name)' cannot go in \(toColor.displayName), restored to \(fromColor.displayName)")
             return
         }
-        // If source set is now incomplete, strip improvements (they require a complete set)
-        if var sourceSet = state.players[playerIndex].properties[fromColor], !sourceSet.isComplete {
-            if sourceSet.hasCornerStore || sourceSet.hasApartmentBuilding {
-                log.event("[\(state.players[playerIndex].name)] \(fromColor.displayName) lost improvements (no longer complete after wild moved)")
+        // If source set is now incomplete, return improvement value to bank.
+        // Improvements require a complete set; moving the wild breaks the set so they convert to cash.
+        if let sourceSet = state.players[playerIndex].properties[fromColor], !sourceSet.isComplete {
+            if savedCornerStore {
+                let comp = Card(id: UUID(), type: .money(3), name: "Corner Store",
+                                description: "Returned to bank", monetaryValue: 3,
+                                assetKey: "card_cornerStore_1")
+                state.players[playerIndex].bank.append(comp)
+                log.event("[\(state.players[playerIndex].name)] Corner Store returned to bank ($3M) — \(fromColor.displayName) no longer complete")
+                log.addActivity("\(state.players[playerIndex].name) Corner Store → bank ($3M)")
             }
-            sourceSet.hasCornerStore = false
-            sourceSet.hasApartmentBuilding = false
-            state.players[playerIndex].properties[fromColor] = sourceSet
+            if savedApartmentBuilding {
+                let comp = Card(id: UUID(), type: .money(3), name: "Apt. Building",
+                                description: "Returned to bank", monetaryValue: 3,
+                                assetKey: "card_apartmentBuilding_1")
+                state.players[playerIndex].bank.append(comp)
+                log.event("[\(state.players[playerIndex].name)] Apartment Building returned to bank ($3M) — \(fromColor.displayName) no longer complete")
+                log.addActivity("\(state.players[playerIndex].name) Apt. Building → bank ($3M)")
+            }
         }
         state.players[playerIndex].placeProperty(card, in: toColor)
         log.event("[\(state.players[playerIndex].name)] reassigned wild '\(card.name)' \(fromColor.displayName) → \(toColor.displayName)")

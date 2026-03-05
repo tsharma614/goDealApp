@@ -501,4 +501,218 @@ final class GameEngineTests: XCTestCase {
         engine.acceptAction()
         XCTAssertLessThan(engine.state.players[2].bankTotal, 2, "Player 2 should be charged after accepting")
     }
+
+    // MARK: - Improvement → Bank on Wild Break
+
+    func testCornerStoreReturnsToBankWhenWildBreaksSet() {
+        // Set up: player 0 has a complete Blue Chip set (2 cards) with Corner Store
+        // One of the 2 cards is a wild. Reassigning the wild makes the set incomplete.
+        let engine = makeEngine()
+        engine.startTurn()
+
+        let wildCard = Card(id: UUID(), type: .wildProperty([.blueChip, .rustDistrict]),
+                            name: "Wild", description: "", monetaryValue: 1, assetKey: "wild_test")
+        let normalCard = makeCard(type: .property(.blueChip), value: 4)
+
+        engine.state.players[0].placeProperty(wildCard, in: .blueChip)
+        engine.state.players[0].placeProperty(normalCard, in: .blueChip)
+        XCTAssertTrue(engine.state.players[0].properties[.blueChip]?.isComplete == true,
+                      "Blue Chip set should be complete (2/2)")
+
+        engine.state.players[0].properties[.blueChip]?.hasCornerStore = true
+        XCTAssertEqual(engine.state.players[0].bankTotal, 0, "Bank should be empty before reassignment")
+
+        // Reassign the wild to Rust District — breaks the Blue Chip set
+        engine.reassignWild(cardId: wildCard.id, toColor: .rustDistrict)
+
+        XCTAssertFalse(engine.state.players[0].properties[.blueChip]?.isComplete == true,
+                       "Blue Chip set should now be incomplete")
+        XCTAssertFalse(engine.state.players[0].properties[.blueChip]?.hasCornerStore == true,
+                       "Corner Store flag should be cleared")
+        XCTAssertEqual(engine.state.players[0].bankTotal, 3,
+                       "Corner Store ($3M) should be returned to bank")
+    }
+
+    func testApartmentBuildingReturnsToBankWhenWildBreaksSet() {
+        let engine = makeEngine()
+        engine.startTurn()
+
+        let wildCard = Card(id: UUID(), type: .wildProperty([.hotZone, .goldRush]),
+                            name: "Wild", description: "", monetaryValue: 1, assetKey: "wild_test2")
+        // hotZone needs 3 properties — add 2 normals + 1 wild = 3 total → complete
+        for _ in 0..<2 {
+            engine.state.players[0].placeProperty(makeCard(type: .property(.hotZone), value: 3), in: .hotZone)
+        }
+        engine.state.players[0].placeProperty(wildCard, in: .hotZone)
+        XCTAssertTrue(engine.state.players[0].properties[.hotZone]?.isComplete == true)
+
+        engine.state.players[0].properties[.hotZone]?.hasCornerStore = true
+        engine.state.players[0].properties[.hotZone]?.hasApartmentBuilding = true
+
+        // Reassign wild — breaks the set (2/3 remaining)
+        engine.reassignWild(cardId: wildCard.id, toColor: .goldRush)
+
+        XCTAssertFalse(engine.state.players[0].properties[.hotZone]?.hasCornerStore == true)
+        XCTAssertFalse(engine.state.players[0].properties[.hotZone]?.hasApartmentBuilding == true)
+        // Both CS ($3M) + AB ($3M) returned
+        XCTAssertEqual(engine.state.players[0].bankTotal, 6,
+                       "Both Corner Store and Apt. Building ($6M total) should be returned to bank")
+    }
+
+    func testNoImprovementReturnWhenSetStaysComplete() {
+        // Wild reassignment that moves WITHIN a complete set (set remains complete)
+        // should not return any improvement cards.
+        let engine = makeEngine()
+        engine.startTurn()
+
+        // rustDistrict needs 2 cards. Place 2 normals (complete without wild).
+        engine.state.players[0].placeProperty(makeCard(type: .property(.rustDistrict), value: 1), in: .rustDistrict)
+        engine.state.players[0].placeProperty(makeCard(type: .property(.rustDistrict), value: 1), in: .rustDistrict)
+        engine.state.players[0].properties[.rustDistrict]?.hasCornerStore = true
+
+        // Move a wild from skylineAve (incomplete, no improvement) to blueChip
+        let wildCard = Card(id: UUID(), type: .wildProperty([.skylineAve, .blueChip]),
+                            name: "Wild", description: "", monetaryValue: 1, assetKey: "wild_test3")
+        engine.state.players[0].placeProperty(wildCard, in: .skylineAve)
+
+        let bankBefore = engine.state.players[0].bankTotal
+        engine.reassignWild(cardId: wildCard.id, toColor: .blueChip)
+
+        XCTAssertEqual(engine.state.players[0].bankTotal, bankBefore,
+                       "No bank compensation when moved wild's source set had no improvement")
+    }
+
+    func testWildReassignmentNoBankCompensationWhenNoImprovement() {
+        // Wild breaks a complete set that has NO improvement — bank should not change.
+        let engine = makeEngine()
+        engine.startTurn()
+
+        let wildCard = Card(id: UUID(), type: .wildProperty([.blueChip, .rustDistrict]),
+                            name: "Wild", description: "", monetaryValue: 1, assetKey: "wild_nc")
+        let normal = makeCard(type: .property(.blueChip), value: 4)
+        engine.state.players[0].placeProperty(wildCard, in: .blueChip)
+        engine.state.players[0].placeProperty(normal, in: .blueChip)
+        // No improvements on the set
+
+        engine.reassignWild(cardId: wildCard.id, toColor: .rustDistrict)
+
+        XCTAssertEqual(engine.state.players[0].bankTotal, 0,
+                       "No compensation when set had no improvements")
+    }
+
+    // MARK: - Manual End Turn (no auto-end after 3 cards)
+
+    func testPhaseRemainsPlayingAfter3Cards() {
+        // After playing 3 cards, the engine phase must stay .playing — no auto-advance.
+        // The human must press End Turn manually.
+        let engine = makeEngine()
+        engine.startTurn()
+        engine.state.players[0].hand = []
+
+        for _ in 0..<3 {
+            engine.state.players[0].addToHand(makeCard(type: .money(1)))
+        }
+        for _ in 0..<3 {
+            if let card = engine.state.players[0].hand.first {
+                engine.playCard(cardId: card.id, as: .bank)
+            }
+        }
+
+        XCTAssertEqual(engine.state.cardsPlayedThisTurn, 3)
+        guard case .playing = engine.state.phase else {
+            XCTFail("Phase should still be .playing after 3 cards — got \(engine.state.phase)")
+            return
+        }
+        // Engine doesn't advance — ViewModel's autoEndTurnIfNeeded was removed
+    }
+
+    func testCanEndTurnManuallyAfter3Cards() {
+        let engine = makeEngine()
+        engine.startTurn()
+        engine.state.players[0].hand = []
+
+        for _ in 0..<3 {
+            engine.state.players[0].addToHand(makeCard(type: .money(1)))
+        }
+        for _ in 0..<3 {
+            if let card = engine.state.players[0].hand.first {
+                engine.playCard(cardId: card.id, as: .bank)
+            }
+        }
+
+        engine.endTurn()
+
+        XCTAssertEqual(engine.state.currentPlayerIndex, 1, "Should advance to next player after manual end turn")
+        XCTAssertEqual(engine.state.cardsPlayedThisTurn, 0, "Card count resets after end turn")
+    }
+
+    func testCanEndTurnBeforePlayingAnyCards() {
+        // Player should be allowed to end turn even without playing any cards.
+        let engine = makeEngine()
+        engine.startTurn()
+        XCTAssertEqual(engine.state.cardsPlayedThisTurn, 0)
+
+        engine.endTurn()
+
+        XCTAssertEqual(engine.state.currentPlayerIndex, 1, "Should advance even with 0 cards played")
+    }
+
+    // MARK: - Corner Store Action Placement
+
+    func testCornerStorePlacedOnOnlyEligibleSet() {
+        // When there is exactly one eligible complete set, Corner Store auto-places.
+        let engine = makeEngine()
+        engine.startTurn()
+
+        engine.state.players[0].properties[.rustDistrict] = makeCompleteSet(color: .rustDistrict)
+        let csCard = Card(id: UUID(), type: .action(.cornerStore), name: "Corner Store",
+                          description: "", monetaryValue: 3, assetKey: "card_cornerStore_1")
+        engine.state.players[0].addToHand(csCard)
+
+        engine.playCard(cardId: csCard.id, as: .action)
+
+        XCTAssertTrue(engine.state.players[0].properties[.rustDistrict]?.hasCornerStore == true,
+                      "Corner Store should be placed on Rust District")
+        XCTAssertNil(engine.state.players[0].hand.first(where: { $0.id == csCard.id }),
+                     "Corner Store card should be removed from hand")
+    }
+
+    func testCornerStoreFailsWithNoEligibleSets() {
+        // Playing Corner Store with no complete sets should fail and return card to hand.
+        let engine = makeEngine()
+        engine.startTurn()
+        // No complete sets
+
+        let csCard = Card(id: UUID(), type: .action(.cornerStore), name: "Corner Store",
+                          description: "", monetaryValue: 3, assetKey: "card_cornerStore_1")
+        engine.state.players[0].addToHand(csCard)
+        let countBefore = engine.state.players[0].hand.count
+
+        engine.playCard(cardId: csCard.id, as: .action)
+
+        XCTAssertEqual(engine.state.players[0].hand.count, countBefore,
+                       "Corner Store should return to hand when no eligible sets exist")
+        XCTAssertEqual(engine.state.cardsPlayedThisTurn, 0,
+                       "Card play count should not increment on failed action")
+    }
+
+    func testCornerStorePlacedWithTargetColor() {
+        // When targetColor is provided explicitly (multi-set picker case), it places on that color.
+        let engine = makeEngine()
+        engine.startTurn()
+
+        engine.state.players[0].properties[.rustDistrict] = makeCompleteSet(color: .rustDistrict)
+        engine.state.players[0].properties[.blueChip] = makeCompleteSet(color: .blueChip)
+
+        let csCard = Card(id: UUID(), type: .action(.cornerStore), name: "Corner Store",
+                          description: "", monetaryValue: 3, assetKey: "card_cornerStore_1")
+        engine.state.players[0].addToHand(csCard)
+
+        engine.playCard(cardId: csCard.id, as: .action, targetPropertyColor: .blueChip)
+
+        XCTAssertTrue(engine.state.players[0].properties[.blueChip]?.hasCornerStore == true,
+                      "Corner Store placed on Blue Chip (specified target)")
+        XCTAssertFalse(engine.state.players[0].properties[.rustDistrict]?.hasCornerStore == true,
+                       "Corner Store NOT placed on Rust District")
+    }
 }

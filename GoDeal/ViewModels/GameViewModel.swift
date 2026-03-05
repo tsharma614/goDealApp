@@ -275,7 +275,6 @@ final class GameViewModel {
         guard isHumanTurn, state.canPlayCard else { return }
         routeAction(.playToBank(cardId: cardId), callerIndex: localPlayerIndex)
         clearError()
-        if isHost { autoEndTurnIfNeeded() }
     }
 
     /// Play a property card to a specific color group
@@ -283,7 +282,6 @@ final class GameViewModel {
         guard isHumanTurn, state.canPlayCard else { return }
         routeAction(.playProperty(cardId: cardId, color: color), callerIndex: localPlayerIndex)
         clearError()
-        if isHost { autoEndTurnIfNeeded() }
     }
 
     /// Play a wild property card and assign a color
@@ -291,7 +289,6 @@ final class GameViewModel {
         guard isHumanTurn, state.canPlayCard else { return }
         routeAction(.playWildProperty(cardId: cardId, color: color), callerIndex: localPlayerIndex)
         clearError()
-        if isHost { autoEndTurnIfNeeded() }
     }
 
     /// Play a steal action (quickGrab/dealSnatcher/swapIt) after pre-selecting the target property.
@@ -311,10 +308,7 @@ final class GameViewModel {
             stealSecondaryCardId: stealSecondaryCardId
         ), callerIndex: localPlayerIndex)
         clearError()
-        if isHost {
-            triggerCPUIfNeeded()
-            autoEndTurnIfNeeded()
-        }
+        if isHost { triggerCPUIfNeeded() }
     }
 
     /// Play an action card
@@ -326,10 +320,7 @@ final class GameViewModel {
             targetPropertyColor: targetPropertyColor
         ), callerIndex: localPlayerIndex)
         clearError()
-        if isHost {
-            triggerCPUIfNeeded()
-            autoEndTurnIfNeeded()
-        }
+        if isHost { triggerCPUIfNeeded() }
     }
 
     /// Play a rent card
@@ -338,10 +329,7 @@ final class GameViewModel {
         routeAction(.playRent(cardId: cardId, color: color, targetPlayerIndex: targetPlayerIndex),
                     callerIndex: localPlayerIndex)
         clearError()
-        if isHost {
-            triggerCPUIfNeeded()
-            autoEndTurnIfNeeded()
-        }
+        if isHost { triggerCPUIfNeeded() }
     }
 
     /// Human plays No Deal! as a response
@@ -380,10 +368,7 @@ final class GameViewModel {
         pendingPaymentAmount = 0
         pendingPaymentCreditorIndex = nil
         pendingPaymentReason = nil
-        if isHost {
-            triggerCPUIfNeeded()
-            autoEndTurnIfNeeded()
-        }
+        if isHost { triggerCPUIfNeeded() }
     }
 
     /// Human cancels discard to go back and play more cards (only when < 3 cards played)
@@ -871,9 +856,8 @@ final class GameViewModel {
                     self.triggerCPUIfNeeded()
                 }
             } else if isHumanTurn {
-                // Human turn returned to .playing (e.g. from awaitingResponse/awaitingPayment)
-                // — auto-end if 3 cards already played
-                autoEndTurnIfNeeded()
+                // Human turn returned to .playing (e.g. from awaitingResponse/awaitingPayment).
+                // Player must press End Turn manually — no auto-end.
             }
 
         case .awaitingWildColorChoice:
