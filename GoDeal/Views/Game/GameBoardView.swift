@@ -1115,16 +1115,16 @@ struct GameBoardView: View {
             }
             Divider().overlay(Color.white.opacity(0.2))
             HStack {
-                statCell("💰 Collected", "$\(stats.rentCollected)M")
-                statCell("💸 Paid", "$\(stats.rentPaid)M")
+                statCell("Collected", "$\(stats.rentCollected)M")
+                statCell("Paid", "$\(stats.rentPaid)M")
             }
             HStack {
-                statCell("🏦 Peak Bank", "$\(stats.peakBankValue)M")
-                statCell("🤏 Deals", "\(stats.steals)")
+                statCell("Peak Bank", "$\(stats.peakBankValue)M")
+                statCell("Deals", "\(stats.steals)")
             }
             HStack {
-                statCell("🚫 Blocks", "\(stats.noDealPlayed)")
-                statCell("🃏 Drew", "\(stats.moneyCardsDrawn)💵 \(stats.propertyCardsDrawn)🏠 \(stats.actionCardsDrawn)⚡ \(stats.rentCardsDrawn)🏘")
+                statCell("Blocks", "\(stats.noDealPlayed)")
+                statCell("Drew", "\(stats.moneyCardsDrawn)💵 \(stats.propertyCardsDrawn)🏠 \(stats.actionCardsDrawn)⚡ \(stats.rentCardsDrawn)🏘")
             }
         }
         .padding(12)

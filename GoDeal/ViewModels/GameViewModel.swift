@@ -549,6 +549,17 @@ final class GameViewModel {
         switch state.phase {
         case .awaitingResponse(let targetIdx, let actionCard, let attackerIdx):
             if targetIdx == humanIdx {
+                // Auto-accept for broke players on payment actions
+                let isPaymentAction: Bool = {
+                    switch actionCard.type {
+                    case .rent, .wildRent, .action(.bigSpender), .action(.collectNow): return true
+                    default: return false
+                    }
+                }()
+                if isPaymentAction && state.players[humanIdx].totalAssets == 0 {
+                    networkSession?.send(.playerAction(.acceptAction))
+                    return
+                }
                 let capturedActionCard = actionCard
                 let capturedAttackerIdx = attackerIdx
                 let capturedTargetIdx = targetIdx
@@ -771,6 +782,19 @@ final class GameViewModel {
         switch state.phase {
         case .awaitingResponse(let targetIdx, let actionCard, let attackerIdx):
             if targetIdx == humanIdx {
+                // Auto-accept for broke players on payment actions — nothing to lose or pay
+                let isPaymentAction: Bool = {
+                    switch actionCard.type {
+                    case .rent, .wildRent, .action(.bigSpender), .action(.collectNow): return true
+                    default: return false
+                    }
+                }()
+                if isPaymentAction && state.players[humanIdx].totalAssets == 0 {
+                    log.event("Human has $0 assets — auto-accepting \(actionCard.name)")
+                    engine.acceptAction()
+                    broadcastState()
+                    return
+                }
                 // Snapshot context before showing sheet so the body doesn't rely on live phase
                 let capturedActionCard = actionCard
                 let capturedAttackerIdx = attackerIdx
@@ -874,7 +898,7 @@ final class GameViewModel {
 
         case .drawing:
             if isHumanTurn {
-                SoundManager.endTurn()  // subtle cue: it's your turn
+                SoundManager.yourTurn()  // vibrate to signal it's your turn
             } else if !state.players[state.currentPlayerIndex].isHuman,
                       cpuPlayers.contains(where: { $0.playerIndex == state.currentPlayerIndex }) {
                 // CPU's turn — auto-draw (solo or multiplayer host with CPUs)

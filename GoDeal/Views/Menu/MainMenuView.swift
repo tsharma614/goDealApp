@@ -22,7 +22,10 @@ struct MainMenuView: View {
 
     var body: some View {
         if isShowingGame {
-            GameBoardView(onExit: { isShowingGame = false })
+            GameBoardView(onExit: {
+                gameViewModel.networkSession?.disconnect()
+                isShowingGame = false
+            })
                 .environment(gameViewModel)
         } else {
             mainMenuStack
@@ -64,8 +67,9 @@ struct MainMenuView: View {
                 .environment(customizationViewModel)
         }
         .sheet(isPresented: $isShowingLobby) {
-            LobbyView { session, localIdx, cpuCount in
-                let setup = GameSetup()
+            LobbyView { session, localIdx, cpuCount, difficulty in
+                var setup = GameSetup()
+                setup.cpuDifficulty = difficulty
                 if session.role == .host {
                     gameViewModel = GameViewModel(setup: setup, session: session, localPlayerIndex: localIdx, cpuCount: cpuCount)
                 } else {
@@ -79,9 +83,11 @@ struct MainMenuView: View {
             TutorialView()
         }
         .sheet(isPresented: $isShowingOnlineLobby) {
-            GameKitLobbyView { session, localIdx, cpuCount in
+            GameKitLobbyView { session, localIdx, cpuCount, difficulty in
+                var setup = GameSetup()
+                setup.cpuDifficulty = difficulty
                 if session.role == .host {
-                    gameViewModel = GameViewModel(setup: GameSetup(), session: session, localPlayerIndex: localIdx, cpuCount: cpuCount)
+                    gameViewModel = GameViewModel(setup: setup, session: session, localPlayerIndex: localIdx, cpuCount: cpuCount)
                 } else {
                     gameViewModel = GameViewModel(session: session, localPlayerIndex: localIdx)
                 }

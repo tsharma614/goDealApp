@@ -9,13 +9,14 @@ struct LobbyView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("playerName") private var storedName: String = ""
 
-    var onStartGame: (MultipeerSession, Int, Int) -> Void   // session, localIdx, cpuCount
+    var onStartGame: (MultipeerSession, Int, Int, AIDifficulty) -> Void   // session, localIdx, cpuCount, difficulty
 
     @State private var role: MCRole? = nil
     @State private var displayName: String = ""
     @State private var session: MultipeerSession? = nil
     @State private var localPlayerIndex: Int = 0
     @State private var cpuCount: Int = 0
+    @State private var cpuDifficulty: AIDifficulty = .medium
 
     var body: some View {
         NavigationStack {
@@ -104,6 +105,11 @@ struct LobbyView: View {
             Spacer()
         }
         .padding(.top, 16)
+        .onChange(of: session.gameStartReceived) { _, started in
+            guard started else { return }
+            onStartGame(session, session.assignedPlayerIndex, 0, .medium)
+            dismiss()
+        }
     }
 
     // MARK: - Host UI
@@ -114,12 +120,21 @@ struct LobbyView: View {
         playerListCard(session: session)
             .padding(.horizontal)
 
-        // CPU opponents stepper
+        // CPU opponents stepper + difficulty
         let humanCount = session.connectedPeers.count + 1
         let maxCPU = max(0, 5 - humanCount)
         if maxCPU > 0 {
             Stepper("CPU Opponents: \(cpuCount)", value: $cpuCount, in: 0...maxCPU)
                 .padding(.horizontal)
+            if cpuCount > 0 {
+                Picker("Difficulty", selection: $cpuDifficulty) {
+                    ForEach(AIDifficulty.allCases, id: \.self) { diff in
+                        Text(diff.rawValue.capitalized).tag(diff)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+            }
         }
 
         let totalCount = humanCount + cpuCount
@@ -279,7 +294,7 @@ struct LobbyView: View {
         }
         session.send(.gameStart)
         session.stopAdvertising()
-        onStartGame(session, 0, cpuCount)
+        onStartGame(session, 0, cpuCount, cpuDifficulty)
     }
 
     @discardableResult
@@ -301,5 +316,5 @@ struct LobbyView: View {
 }
 
 #Preview {
-    LobbyView { _, _, _ in }
+    LobbyView { _, _, _, _ in }
 }

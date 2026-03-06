@@ -88,6 +88,10 @@ enum SoundManager {
         Haptics.impact(.light)
     }
 
+    static func yourTurn() {
+        Haptics.notification(.success)
+    }
+
     static func paymentDue() {
         Haptics.notification(.warning)
     }

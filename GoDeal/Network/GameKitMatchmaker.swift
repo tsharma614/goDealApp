@@ -32,7 +32,7 @@ enum MatchmakerError: LocalizedError {
         switch self {
         case .timeout:          return "Room not found. Make sure both players enter the same code and try again."
         case .notAuthenticated: return "Sign in to Game Center in Settings to play online."
-        case .playerNotFound:   return "Player not found. They may have changed their Game Center account."
+        case .playerNotFound:   return "Could not reach this player. They may be offline or unavailable."
         }
     }
 }
@@ -162,6 +162,9 @@ final class GameKitMatchmaker {
         guard GKLocalPlayer.local.isAuthenticated else {
             throw MatchmakerError.notAuthenticated
         }
+
+        // Cancel any in-flight matchmaking before starting a new invite
+        GKMatchmaker.shared().cancel()
 
         isSearching = true
         log.event("[GKMatchmaker] inviting \(gamePlayerIDs.count) player(s)")

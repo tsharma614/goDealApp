@@ -576,16 +576,31 @@ final class GameEngine {
               state.players[debtorIdx].isHuman else { return }
 
         // Transfer selected bank cards
+        var totalPaid = 0
         for cardId in bankCardIds {
             if let idx = state.players[debtorIdx].bank.firstIndex(where: { $0.id == cardId }) {
                 let card = state.players[debtorIdx].bank.remove(at: idx)
+                totalPaid += card.monetaryValue
                 state.players[creditorIdx].bank.append(card)
             }
         }
         // Transfer selected property cards to creditor's property area
         for cardId in propertyCardIds {
             if let (card, color) = state.players[debtorIdx].removeProperty(id: cardId) {
+                totalPaid += card.monetaryValue
                 state.players[creditorIdx].placeProperty(card, in: color)
+            }
+        }
+
+        // Track payment stats
+        if debtorIdx < state.playerStats.count {
+            state.playerStats[debtorIdx].rentPaid += totalPaid
+        }
+        if creditorIdx < state.playerStats.count {
+            state.playerStats[creditorIdx].rentCollected += totalPaid
+            let newBankTotal = state.players[creditorIdx].bankTotal
+            if newBankTotal > state.playerStats[creditorIdx].peakBankValue {
+                state.playerStats[creditorIdx].peakBankValue = newBankTotal
             }
         }
 

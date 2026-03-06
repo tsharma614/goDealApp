@@ -6,7 +6,7 @@ import GameKit
 /// Internet multiplayer lobby.
 /// Flow: Create/Join code entry → waiting lobby → host taps Start → game begins.
 struct GameKitLobbyView: View {
-    var onStartGame: (GameKitSession, Int, Int) -> Void   // session, localIdx, cpuCount
+    var onStartGame: (GameKitSession, Int, Int, AIDifficulty) -> Void   // session, localIdx, cpuCount, difficulty
 
     @Environment(\.dismiss) private var dismiss
 
@@ -27,6 +27,7 @@ struct GameKitLobbyView: View {
     @State private var recentOpponents: [RecentOpponent] = []
     @State private var isShowingRecents = false
     @State private var cpuCount: Int = 0
+    @State private var cpuDifficulty: AIDifficulty = .medium
 
     private enum EntryMode { case create, join }
 
@@ -226,7 +227,7 @@ struct GameKitLobbyView: View {
         .padding(.top, 16)
         .onChange(of: session.gameStartReceived) { _, started in
             guard started else { return }
-            onStartGame(session, session.assignedPlayerIndex, 0)  // guest doesn't run CPUs
+            onStartGame(session, session.assignedPlayerIndex, 0, .medium)  // guest doesn't run CPUs
             dismiss()
         }
     }
@@ -281,10 +282,19 @@ struct GameKitLobbyView: View {
         let humanCount = session.connectedPeerNames.count + 1
         let maxCPU = max(0, 5 - humanCount)
 
-        // CPU opponents stepper
+        // CPU opponents stepper + difficulty
         if maxCPU > 0 {
             Stepper("CPU Opponents: \(cpuCount)", value: $cpuCount, in: 0...maxCPU)
                 .padding(.horizontal)
+            if cpuCount > 0 {
+                Picker("Difficulty", selection: $cpuDifficulty) {
+                    ForEach(AIDifficulty.allCases, id: \.self) { diff in
+                        Text(diff.rawValue.capitalized).tag(diff)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+            }
         }
 
         let totalCount = humanCount + cpuCount
@@ -376,7 +386,7 @@ struct GameKitLobbyView: View {
         }
         session.send(.gameStart)
         let localIdx = allIDs.firstIndex(of: GKLocalPlayer.local.gamePlayerID) ?? 0
-        onStartGame(session, localIdx, cpuCount)
+        onStartGame(session, localIdx, cpuCount, cpuDifficulty)
         dismiss()
     }
 
@@ -436,6 +446,7 @@ struct GameKitLobbyView: View {
     }
 
     private func rematch(opponent: RecentOpponent) {
+        guard !matchmaker.isSearching else { return }
         errorMessage = nil
         Task {
             do {
@@ -483,5 +494,5 @@ struct GameKitLobbyView: View {
 }
 
 #Preview {
-    GameKitLobbyView { _, _, _ in }
+    GameKitLobbyView { _, _, _, _ in }
 }
