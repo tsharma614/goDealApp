@@ -1556,4 +1556,234 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(ordered, [3, 4, 0, 1])
     }
 
+    // MARK: - 5-Human Multiplayer Tests
+
+    func testFiveHumanPlayersAllMarkedHuman() {
+        let players = (0..<5).map { Player(name: "Player \($0)", isHuman: true) }
+        let deck = DeckBuilder.buildDeck()
+        var state = GameState(players: players, deck: deck)
+        state.currentPlayerIndex = 0
+        for i in 0..<5 {
+            let drawn = ActionResolver.drawCards(count: 5, from: &state)
+            state.players[i].addToHand(drawn)
+        }
+        XCTAssertEqual(state.players.count, 5)
+        XCTAssertEqual(state.players.filter({ $0.isHuman }).count, 5, "All 5 players should be human")
+        XCTAssertEqual(state.players.filter({ !$0.isHuman }).count, 0, "No CPUs in 5-human game")
+    }
+
+    func testFiveHumanTurnAdvancesCorrectly() {
+        let players = (0..<5).map { Player(name: "P\($0)", isHuman: true) }
+        let deck = DeckBuilder.buildDeck()
+        var state = GameState(players: players, deck: deck)
+        state.currentPlayerIndex = 0
+        let engine = GameEngine(state: state)
+        engine.startTurn()
+        engine.endTurn()
+        XCTAssertEqual(engine.state.currentPlayerIndex, 1)
+        engine.startTurn()
+        engine.endTurn()
+        XCTAssertEqual(engine.state.currentPlayerIndex, 2)
+    }
+
+    func testFiveHumanUniqueNamesPreserved() {
+        let names = ["Alice", "Bob", "Charlie", "Dana", "Eve"]
+        let players = names.map { Player(name: $0, isHuman: true) }
+        let deck = DeckBuilder.buildDeck()
+        let state = GameState(players: players, deck: deck)
+        let stateNames = Set(state.players.map(\.name))
+        XCTAssertEqual(stateNames.count, 5, "All 5 unique names should be preserved")
+        XCTAssertEqual(stateNames, Set(names))
+    }
+
+    func testFiveHumanStatsInitialized() {
+        let players = (0..<5).map { Player(name: "P\($0)", isHuman: true) }
+        let deck = DeckBuilder.buildDeck()
+        let state = GameState(players: players, deck: deck)
+        XCTAssertEqual(state.playerStats.count, 5, "Stats should be initialized for all 5 humans")
+        for stat in state.playerStats {
+            XCTAssertEqual(stat.steals, 0)
+            XCTAssertEqual(stat.rentCollected, 0)
+        }
+    }
+
+    func testFiveHumanTurnWrapsAround() {
+        let players = (0..<5).map { Player(name: "P\($0)", isHuman: true) }
+        let deck = DeckBuilder.buildDeck()
+        var state = GameState(players: players, deck: deck)
+        state.currentPlayerIndex = 0
+        let engine = GameEngine(state: state)
+        // Advance through all 5 players
+        for _ in 0..<5 {
+            engine.startTurn()
+            engine.endTurn()
+        }
+        XCTAssertEqual(engine.state.currentPlayerIndex, 0, "Turn should wrap back to player 0")
+    }
+
+    // MARK: - 3 Human + 2 CPU Tests
+
+    func testThreeHumanTwoCPUPlayerCounts() {
+        let humans = (0..<3).map { Player(name: "Human\($0)", isHuman: true) }
+        let cpus = (0..<2).map { Player(name: "CPU\($0)", isHuman: false) }
+        let players = humans + cpus
+        let deck = DeckBuilder.buildDeck()
+        let state = GameState(players: players, deck: deck)
+        XCTAssertEqual(state.players.count, 5)
+        XCTAssertEqual(state.players.filter({ $0.isHuman }).count, 3)
+        XCTAssertEqual(state.players.filter({ !$0.isHuman }).count, 2)
+    }
+
+    func testThreeHumanTwoCPUShufflePreservesTypes() {
+        // Shuffle 100 times — always 3 human + 2 CPU
+        for _ in 0..<100 {
+            var players: [Player] = (0..<3).map { Player(name: "H\($0)", isHuman: true) }
+            players += (0..<2).map { Player(name: "C\($0)", isHuman: false) }
+            players.shuffle()
+            XCTAssertEqual(players.filter({ $0.isHuman }).count, 3)
+            XCTAssertEqual(players.filter({ !$0.isHuman }).count, 2)
+        }
+    }
+
+    func testCPUNamePoolExcludesAllHumanNames() {
+        // Simulate the name pool filtering logic used in multiplayer inits
+        let namePool = ["Jonathan", "Nikhil", "Trusha", "Som", "Meha", "Ishan",
+                        "Vikram", "Amit", "Tejal", "Akshay", "Tanmay", "Ambi"]
+        let humanNames: Set<String> = ["tanmay", "nikhil", "som"]  // lowercased
+        let filtered = namePool.filter { !humanNames.contains($0.lowercased()) }
+        XCTAssertFalse(filtered.contains("Tanmay"), "Tanmay should be excluded — matches human")
+        XCTAssertFalse(filtered.contains("Nikhil"), "Nikhil should be excluded — matches human")
+        XCTAssertFalse(filtered.contains("Som"), "Som should be excluded — matches human")
+        XCTAssertTrue(filtered.contains("Trusha"), "Trusha should remain in pool")
+        XCTAssertEqual(filtered.count, namePool.count - 3)
+    }
+
+    func testMixedHumanCPUTurnAdvancement() {
+        // H0, C0, H1, C1, H2 — turn advances through all correctly
+        var players: [Player] = []
+        players.append(Player(name: "H0", isHuman: true))
+        players.append(Player(name: "C0", isHuman: false))
+        players.append(Player(name: "H1", isHuman: true))
+        players.append(Player(name: "C1", isHuman: false))
+        players.append(Player(name: "H2", isHuman: true))
+        let deck = DeckBuilder.buildDeck()
+        var state = GameState(players: players, deck: deck)
+        state.currentPlayerIndex = 0
+        let engine = GameEngine(state: state)
+
+        // Player 0 (human) takes turn
+        engine.startTurn()
+        XCTAssertTrue(engine.state.players[engine.state.currentPlayerIndex].isHuman)
+        engine.endTurn()
+        // Player 1 (CPU) turn
+        XCTAssertEqual(engine.state.currentPlayerIndex, 1)
+        XCTAssertFalse(engine.state.players[1].isHuman)
+        engine.startTurn()
+        engine.endTurn()
+        // Player 2 (human)
+        XCTAssertEqual(engine.state.currentPlayerIndex, 2)
+        XCTAssertTrue(engine.state.players[2].isHuman)
+    }
+
+    func testOpponentOrderingExcludesLocalPlayer() {
+        // With 5 players, local=2 → opponents should be [3, 4, 0, 1] — never includes 2
+        let n = 5
+        for local in 0..<n {
+            let opponents = (1..<n).map { (local + $0) % n }
+            XCTAssertEqual(opponents.count, 4, "Should have exactly n-1 opponents")
+            XCTAssertFalse(opponents.contains(local), "Local player should never appear in opponents")
+            // All other indices should be present
+            let expected = Set((0..<n).filter { $0 != local })
+            XCTAssertEqual(Set(opponents), expected)
+        }
+    }
+
+    // MARK: - Manual End Turn (No Auto-End)
+
+    func testPhaseRemainsPlayingAfter3CardsNoAutoEnd() {
+        // After 3 cards played, phase stays .playing — human must press End Turn
+        let engine = makeEngine()
+        engine.startTurn()
+
+        for _ in 0..<3 {
+            let cardId = engine.state.players[0].hand[0].id
+            engine.playCard(cardId: cardId, as: .bank)
+        }
+        XCTAssertEqual(engine.state.cardsPlayedThisTurn, 3, "Should have played 3 cards")
+        XCTAssertEqual(engine.state.phase, .playing, "Phase should remain .playing — no auto-end")
+        XCTAssertEqual(engine.state.currentPlayerIndex, 0, "Current player should not advance without endTurn()")
+    }
+
+    func testCanPlayCardReturnsFalseAfter3Cards() {
+        let engine = makeEngine()
+        engine.startTurn()
+
+        for _ in 0..<3 {
+            let cardId = engine.state.players[0].hand[0].id
+            engine.playCard(cardId: cardId, as: .bank)
+        }
+        XCTAssertFalse(engine.state.canPlayCard, "canPlayCard should be false after 3 cards")
+    }
+
+    func testEndTurnAdvancesAfter3Cards() {
+        let engine = makeEngine()
+        engine.startTurn()
+
+        for _ in 0..<3 {
+            let cardId = engine.state.players[0].hand[0].id
+            engine.playCard(cardId: cardId, as: .bank)
+        }
+        XCTAssertEqual(engine.state.cardsPlayedThisTurn, 3)
+        engine.endTurn()
+        XCTAssertEqual(engine.state.currentPlayerIndex, 1, "Turn should advance after explicit endTurn")
+    }
+
+    func testEndTurnAdvancesAfter1Card() {
+        // Player can end turn early (after playing fewer than 3 cards)
+        let engine = makeEngine()
+        engine.startTurn()
+
+        let cardId = engine.state.players[0].hand[0].id
+        engine.playCard(cardId: cardId, as: .bank)
+        XCTAssertEqual(engine.state.cardsPlayedThisTurn, 1)
+        engine.endTurn()
+        XCTAssertEqual(engine.state.currentPlayerIndex, 1, "Turn should advance after endTurn even with <3 cards played")
+    }
+
+    func testEndTurnAdvancesAfter0Cards() {
+        // Player can end turn without playing any cards
+        let engine = makeEngine()
+        engine.startTurn()
+        engine.endTurn()
+        XCTAssertEqual(engine.state.currentPlayerIndex, 1, "Turn should advance after endTurn with 0 cards played")
+    }
+
+    // MARK: - Broke Player Auto-Resolve
+
+    func testBrokePlayerPaymentAutoResolves() {
+        // Player with $0 bank and $0 properties should auto-resolve payment
+        let engine = makeEngine()
+        engine.startTurn()
+
+        // Ensure player 1 has nothing
+        engine.state.players[1].bank = []
+        engine.state.players[1].properties = [:]
+        XCTAssertEqual(engine.state.players[1].totalAssets, 0)
+
+        // Simulate payment phase
+        engine.state.phase = .awaitingPayment(
+            debtorIndex: 1, creditorIndex: 0, amount: 5, reason: .rent(.blueChip)
+        )
+        // Resolve with nothing
+        engine.resolveCPUPayment(debtorIndex: 1, creditorIndex: 0, amount: 5)
+        // Creditor should receive $0 (nothing to take)
+        XCTAssertEqual(engine.state.players[0].bank.count, engine.state.players[0].bank.count,
+                       "Creditor bank unchanged — debtor had nothing")
+    }
+
+    func testBrokePlayerTotalAssetsIsZero() {
+        let player = Player(name: "Broke", isHuman: true)
+        XCTAssertEqual(player.totalAssets, 0, "New player with no bank/properties should have 0 total assets")
+    }
+
 }

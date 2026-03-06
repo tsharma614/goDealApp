@@ -149,9 +149,10 @@ final class GameViewModel {
             players.append(Player(name: peer.displayName, isHuman: true))
         }
 
-        // Add CPU players
+        // Add CPU players — exclude all human names to avoid duplicates
+        let humanNames = Set(players.map { $0.name.lowercased() })
         var namePool = Self.cpuNamePool
-            .filter { $0.lowercased() != resolvedHostName.lowercased() }
+            .filter { !humanNames.contains($0.lowercased()) }
             .shuffled()
         let actualCPUCount = max(0, min(cpuCount, 5 - players.count))
         for _ in 0..<actualCPUCount {
@@ -195,9 +196,14 @@ final class GameViewModel {
         }
         wireSessionCallbacks()
 
-        // Broadcast initial state so guests render the full game board immediately
+        // Broadcast corrected player assignments (lobby sent pre-shuffle indices) + initial state
         Task { @MainActor [weak self] in
             guard let self else { return }
+            for peer in guests {
+                if let idx = self.peerPlayerIndexMap[peer.displayName] {
+                    self.networkSession?.send(.playerAssignment(localPlayerIndex: idx), toPeerIDs: [peer.displayName])
+                }
+            }
             self.networkSession?.send(.gameState(self.engine.state))
         }
     }
@@ -238,9 +244,10 @@ final class GameViewModel {
             peerIDToName.append((peerID, name))
         }
 
-        // Add CPU players
+        // Add CPU players — exclude all human names to avoid duplicates
+        let humanNames = Set(players.map { $0.name.lowercased() })
         var namePool = Self.cpuNamePool
-            .filter { $0.lowercased() != resolvedHostName.lowercased() }
+            .filter { !humanNames.contains($0.lowercased()) }
             .shuffled()
         let actualCPUCount = max(0, min(cpuCount, 5 - players.count))
         for _ in 0..<actualCPUCount {
@@ -284,8 +291,9 @@ final class GameViewModel {
         // Broadcast initial state to all guests
         Task { @MainActor [weak self] in
             guard let self else { return }
-            for (offset, peerID) in session.connectedPeerIDs.enumerated() {
-                session.send(.playerAssignment(localPlayerIndex: offset + 1), toPeerIDs: [peerID])
+            for peerID in session.connectedPeerIDs {
+                let idx = self.peerPlayerIndexMap[peerID] ?? 0
+                session.send(.playerAssignment(localPlayerIndex: idx), toPeerIDs: [peerID])
             }
             session.send(.gameState(self.engine.state))
             session.send(.gameStart)
@@ -656,24 +664,7 @@ final class GameViewModel {
         // in GameBoardView fires automatically when phase changes, avoiding double calls.
         broadcastState()
         triggerCPUIfNeeded()
-
-        // Auto-end guest's turn after 3 cards (mirrors autoEndTurnIfNeeded for local player)
-        if state.currentPlayerIndex == peerIndex,
-           case .playing = state.phase,
-           state.cardsPlayedThisTurn >= 3 {
-            Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: 450_000_000)
-                guard let self,
-                      self.state.currentPlayerIndex == peerIndex,
-                      case .playing = self.state.phase,
-                      self.state.cardsPlayedThisTurn >= 3 else { return }
-                self.log.event("Auto-ending turn for \(self.state.players[peerIndex].name) (3/3 cards played)")
-                self.executeAction(.endTurn, callerIndex: peerIndex)
-                // onChange fires automatically for the phase change; no handlePhaseChange() here
-                self.broadcastState()
-                self.triggerCPUIfNeeded()
-            }
-        }
+        // Remote humans must press End Turn manually (same as local human — no auto-end after 3 cards)
     }
 
     // MARK: - Wire Session Callbacks
@@ -692,6 +683,9 @@ final class GameViewModel {
             case .playAgainRequest:
                 guard !self.isHost else { return }
                 self.showPlayAgainConfirmation = true
+            case .playerAssignment(let idx):
+                guard !self.isHost else { return }
+                self.localPlayerIndex = idx
             case .playAgainConfirm:
                 guard self.isHost else { return }
                 self.newMultiplayerGame()
@@ -851,8 +845,21 @@ final class GameViewModel {
                     self.log.warn("Stuck state detected — awaitingResponse target=\(self.state.players[targetIdx].name) — force-rescuing")
                     self.triggerCPUIfNeeded()
                 }
+            } else {
+                // Remote human target — auto-accept if broke on payment actions (skip network round trip)
+                let isPaymentAction: Bool = {
+                    switch actionCard.type {
+                    case .rent, .wildRent, .action(.bigSpender), .action(.collectNow): return true
+                    default: return false
+                    }
+                }()
+                if isPaymentAction && state.players[targetIdx].totalAssets == 0 {
+                    log.event("Remote human \(state.players[targetIdx].name) has $0 assets — auto-accepting \(actionCard.name)")
+                    engine.acceptAction()
+                    broadcastState()
+                }
             }
-            // Multiplayer non-local human target: wait for that device to send response
+            // Multiplayer non-local human target with assets: wait for that device to send response
 
         case .awaitingPayment(let debtorIdx, let creditorIdx, let amount, let reason):
             if debtorIdx == humanIdx {
@@ -881,13 +888,14 @@ final class GameViewModel {
                         self.isShowingPaymentSheet = true
                     }
                 }
-            } else if !state.players[debtorIdx].isHuman {
-                // CPU debtor — auto-resolve (solo or multiplayer host with CPUs)
+            } else if !state.players[debtorIdx].isHuman || state.players[debtorIdx].totalAssets == 0 {
+                // CPU debtor or broke remote human — auto-resolve without waiting for network round trip
+                log.event("Auto-resolving payment for \(state.players[debtorIdx].name) (assets=\(state.players[debtorIdx].totalAssets))")
                 engine.resolveCPUPayment(debtorIndex: debtorIdx, creditorIndex: creditorIdx, amount: amount)
                 broadcastState()
                 triggerCPUIfNeeded()
             }
-            // Multiplayer non-local human: wait for that player's device to send submitPayment
+            // Multiplayer non-local human with assets: wait for that player's device to send submitPayment
 
         case .awaitingPropertyChoice(let chooserIdx, _):
             if chooserIdx == humanIdx {
@@ -1092,21 +1100,6 @@ final class GameViewModel {
         }
     }
 
-    /// Auto-ends the human's turn after 3 cards are played, with a short delay for animation.
-    private func autoEndTurnIfNeeded() {
-        guard isHumanTurn, case .playing = state.phase, state.cardsPlayedThisTurn >= 3 else { return }
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 450_000_000)
-            guard let self, self.isHumanTurn,
-                  case .playing = self.state.phase,
-                  self.state.cardsPlayedThisTurn >= 3 else { return }
-            self.log.event("Auto-ending turn (3/3 cards played)")
-            self.routeAction(.endTurn, callerIndex: self.localPlayerIndex)
-            self.broadcastState()
-            self.triggerCPUIfNeeded()
-        }
-    }
-
     private func phaseDescription(_ phase: GamePhase) -> String {
         switch phase {
         case .drawing:                      return "drawing"
@@ -1199,6 +1192,10 @@ final class GameViewModel {
         self.pendingNoDealCards = []
         self.pendingNoDealActionDetail = ""
 
+        // Send updated player assignments to each guest (indices changed after reshuffle)
+        for (peerID, idx) in peerPlayerIndexMap {
+            session.send(.playerAssignment(localPlayerIndex: idx), toPeerIDs: [peerID])
+        }
         session.send(.gameState(engine.state))
     }
 
