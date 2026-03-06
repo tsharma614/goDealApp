@@ -14,7 +14,8 @@ final class FivePlayerTests: XCTestCase {
         let players = (0..<playerCount).map { i in
             Player(name: "P\(i)", isHuman: i == 0)
         }
-        let state = GameState(players: players, deck: DeckBuilder.buildDeck())
+        var state = GameState(players: players, deck: DeckBuilder.buildDeck())
+        state.currentPlayerIndex = 0  // pin for deterministic tests
         return GameEngine(state: state)
     }
 

@@ -131,7 +131,7 @@ struct GameState: Codable {
         self.players = players
         self.deck = deck
         self.discardPile = []
-        self.currentPlayerIndex = 0
+        self.currentPlayerIndex = Int.random(in: 0..<players.count)
         self.cardsPlayedThisTurn = 0
         self.phase = .drawing
         self.pendingDoubleUp = PendingDoubleUp()

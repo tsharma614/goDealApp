@@ -219,13 +219,13 @@ final class WinCheckerTests: XCTestCase {
 
         // With currentPlayerIndex = 0, player 0 should win
         state = GameState(players: state.players, deck: DeckBuilder.buildDeck())
+        state.currentPlayerIndex = 0  // pin for deterministic test
         state.players[0].properties[.rustDistrict] = makeCompleteSet(color: .rustDistrict)
         state.players[0].properties[.blueChip] = makeCompleteSet(color: .blueChip)
         state.players[0].properties[.hotZone] = makeCompleteSet(color: .hotZone)
         state.players[1].properties[.rustDistrict] = makeCompleteSet(color: .rustDistrict)
         state.players[1].properties[.blueChip] = makeCompleteSet(color: .blueChip)
         state.players[1].properties[.hotZone] = makeCompleteSet(color: .hotZone)
-        // currentPlayerIndex defaults to 0
         XCTAssertEqual(WinChecker.check(state), 0, "Current player (0) should win in a tie")
     }
 }

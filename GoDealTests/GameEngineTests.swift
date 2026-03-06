@@ -11,7 +11,8 @@ final class GameEngineTests: XCTestCase {
             players.append(Player(name: "CPU \(i)", isHuman: false))
         }
         let deck = DeckBuilder.buildDeck()
-        let state = GameState(players: players, deck: deck)
+        var state = GameState(players: players, deck: deck)
+        state.currentPlayerIndex = 0  // pin for deterministic tests
         return GameEngine(state: state)
     }
 
@@ -1426,5 +1427,58 @@ final class GameEngineTests: XCTestCase {
         // Stats should show $0 paid
         XCTAssertEqual(engine.state.playerStats[1].rentPaid, 0)
         XCTAssertEqual(engine.state.playerStats[0].rentCollected, 0)
+    }
+
+    // MARK: - Random Starting Player
+
+    func testRandomStartingPlayerIsWithinBounds() {
+        // GameState.init randomizes currentPlayerIndex — verify it's always valid
+        for playerCount in 2...5 {
+            let players = (0..<playerCount).map { Player(name: "P\($0)", isHuman: $0 == 0) }
+            let state = GameState(players: players, deck: DeckBuilder.buildDeck())
+            XCTAssertTrue(state.currentPlayerIndex >= 0 && state.currentPlayerIndex < playerCount,
+                          "Starting index \(state.currentPlayerIndex) out of bounds for \(playerCount) players")
+        }
+    }
+
+    func testRandomStartingPlayerVaries() {
+        // Over 50 games, we should see at least 2 different starting indices
+        var seen = Set<Int>()
+        for _ in 0..<50 {
+            let players = [Player(name: "A", isHuman: true), Player(name: "B", isHuman: false)]
+            let state = GameState(players: players, deck: DeckBuilder.buildDeck())
+            seen.insert(state.currentPlayerIndex)
+        }
+        XCTAssertTrue(seen.count >= 2,
+                      "Expected random starting player to vary across 50 games, but always got \(seen)")
+    }
+
+    func testRandomStartingPlayerWorksWithFivePlayers() {
+        // Over 100 games with 5 players, should see at least 3 different starters
+        var seen = Set<Int>()
+        for _ in 0..<100 {
+            let players = (0..<5).map { Player(name: "P\($0)", isHuman: $0 == 0) }
+            let state = GameState(players: players, deck: DeckBuilder.buildDeck())
+            seen.insert(state.currentPlayerIndex)
+        }
+        XCTAssertTrue(seen.count >= 3,
+                      "Expected varied starting players across 100 five-player games, got \(seen)")
+    }
+
+    func testGameEngineStartTurnWorksForNonZeroStart() {
+        // Verify the engine correctly draws cards for a non-zero starting player
+        let players = [Player(name: "A", isHuman: true), Player(name: "B", isHuman: false)]
+        var state = GameState(players: players, deck: DeckBuilder.buildDeck())
+        state.currentPlayerIndex = 1  // CPU starts
+        // Give player 1 some cards so they draw 2 (not 5 for empty hand)
+        state.players[1].hand = [
+            Card(id: UUID(), type: .money(1), name: "M", description: "", monetaryValue: 1, assetKey: "m")
+        ]
+        let engine = GameEngine(state: state)
+        let handBefore = engine.state.players[1].hand.count
+        engine.startTurn()
+        XCTAssertEqual(engine.state.players[1].hand.count, handBefore + 2,
+                       "Non-zero starting player should draw 2 cards")
+        XCTAssertEqual(engine.state.currentPlayerIndex, 1)
     }
 }

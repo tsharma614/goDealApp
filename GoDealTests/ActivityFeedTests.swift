@@ -20,7 +20,9 @@ final class ActivityFeedTests: XCTestCase {
         for i in 1..<playerCount {
             players.append(Player(name: "CPU \(i)", isHuman: false))
         }
-        return GameEngine(state: GameState(players: players, deck: DeckBuilder.buildDeck()))
+        var state = GameState(players: players, deck: DeckBuilder.buildDeck())
+        state.currentPlayerIndex = 0  // pin for deterministic tests
+        return GameEngine(state: state)
     }
 
     func makeCard(type: CardType, value: Int = 1) -> Card {
