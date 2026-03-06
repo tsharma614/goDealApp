@@ -1465,6 +1465,38 @@ final class GameEngineTests: XCTestCase {
                       "Expected varied starting players across 100 five-player games, got \(seen)")
     }
 
+    func testFirstPlayerIndexMatchesInitialCurrentPlayer() {
+        for _ in 0..<20 {
+            let players = (0..<3).map { Player(name: "P\($0)", isHuman: $0 == 0) }
+            let state = GameState(players: players, deck: DeckBuilder.buildDeck())
+            XCTAssertEqual(state.firstPlayerIndex, state.currentPlayerIndex,
+                           "firstPlayerIndex should match initial currentPlayerIndex")
+        }
+    }
+
+    func testTurnOrderIsOneBasedAndCoversAllPlayers() {
+        let players = (0..<4).map { Player(name: "P\($0)", isHuman: $0 == 0) }
+        var state = GameState(players: players, deck: DeckBuilder.buildDeck())
+        state.firstPlayerIndex = 2
+        state.currentPlayerIndex = 2
+        let orders = (0..<4).map { state.turnOrder(for: $0) }
+        XCTAssertEqual(Set(orders), Set([1, 2, 3, 4]), "Every position 1-4 should appear exactly once")
+        XCTAssertEqual(state.turnOrder(for: 2), 1, "First player should have turn order 1")
+        XCTAssertEqual(state.turnOrder(for: 3), 2)
+        XCTAssertEqual(state.turnOrder(for: 0), 3)
+        XCTAssertEqual(state.turnOrder(for: 1), 4)
+    }
+
+    func testOpponentOrderingRelativeToLocalPlayer() {
+        // Simulate the opponent ordering logic from GameBoardView
+        let n = 4
+        let local = 2  // human is player index 2
+        let orderedOpponents = (1..<n).map { offset in (local + offset) % n }
+        // Should be: 3, 0, 1 — player after you first, wrapping around
+        XCTAssertEqual(orderedOpponents, [3, 0, 1],
+                       "Opponents should be ordered: next after local → wrapping to just before local")
+    }
+
     func testGameEngineStartTurnWorksForNonZeroStart() {
         // Verify the engine correctly draws cards for a non-zero starting player
         let players = [Player(name: "A", isHuman: true), Player(name: "B", isHuman: false)]
@@ -1481,4 +1513,47 @@ final class GameEngineTests: XCTestCase {
                        "Non-zero starting player should draw 2 cards")
         XCTAssertEqual(engine.state.currentPlayerIndex, 1)
     }
+
+    // MARK: - Randomized Seating Order
+
+    @MainActor
+    func testSoloInitShufflesPlayerOrder() {
+        // Over 30 solo games with 3 CPUs, the human shouldn't always be at index 0
+        var humanIndices = Set<Int>()
+        for _ in 0..<30 {
+            var setup = GameSetup()
+            setup.cpuCount = 3
+            setup.humanPlayerName = "TestHuman"
+            let vm = GameViewModel(setup: setup)
+            let idx = vm.localPlayerIndex
+            humanIndices.insert(idx)
+            // Verify the human is actually at localPlayerIndex
+            XCTAssertTrue(vm.state.players[idx].isHuman,
+                          "Player at localPlayerIndex should be human")
+        }
+        XCTAssertTrue(humanIndices.count >= 2,
+                      "Human should appear at different indices across 30 games, got \(humanIndices)")
+    }
+
+    @MainActor
+    func testShuffledPlayersPreservesAllNames() {
+        var setup = GameSetup()
+        setup.cpuCount = 4
+        setup.humanPlayerName = "TestHuman"
+        let vm = GameViewModel(setup: setup)
+        XCTAssertEqual(vm.state.players.count, 5, "Should have 5 players total")
+        XCTAssertEqual(vm.state.players.filter({ $0.isHuman }).count, 1, "Exactly 1 human")
+        XCTAssertEqual(vm.state.players.filter({ !$0.isHuman }).count, 4, "Exactly 4 CPUs")
+        XCTAssertTrue(vm.state.players.contains(where: { $0.name == "TestHuman" }))
+    }
+
+    func testOpponentOrderRelativeToLocalPlayer() {
+        // The opponent ordering logic: (local+1)%n, (local+2)%n, ..., (local+n-1)%n
+        // For local=2, n=5: should be [3, 4, 0, 1]
+        let n = 5
+        let local = 2
+        let ordered = (1..<n).map { (local + $0) % n }
+        XCTAssertEqual(ordered, [3, 4, 0, 1])
+    }
+
 }

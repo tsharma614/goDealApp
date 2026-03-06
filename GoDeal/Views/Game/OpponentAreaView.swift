@@ -16,7 +16,6 @@ struct OpponentAreaView: View {
                     .fill(isCurrentTurn ? Color.yellow : Color.clear)
                     .overlay(Circle().stroke(Color.secondary.opacity(0.3), lineWidth: 1))
                     .frame(width: 10, height: 10)
-                    .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: isCurrentTurn)
 
                 Text(player.name)
                     .font(.caption.weight(.semibold))

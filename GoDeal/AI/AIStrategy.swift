@@ -162,12 +162,12 @@ enum AIStrategy {
             return decision
         }
 
-        // 5. Play rent targeting the leader (any rent >= $2M against them, or any threshold >= $3M)
+        // 5. Play rent targeting the leader (any rent >= $1M against them, or any threshold >= $1M)
         if let leader = leaderIndex,
-           let decision = tryRentAgainst(hand: hand, state: state, playerIndex: playerIndex, preferredTarget: leader, threshold: 2) {
+           let decision = tryRentAgainst(hand: hand, state: state, playerIndex: playerIndex, preferredTarget: leader, threshold: 1) {
             return decision
         }
-        if let decision = tryHighValueRent(hand: hand, state: state, playerIndex: playerIndex, threshold: 3) {
+        if let decision = tryHighValueRent(hand: hand, state: state, playerIndex: playerIndex, threshold: 1) {
             return decision
         }
 
@@ -255,10 +255,8 @@ enum AIStrategy {
             case .swapIt:
                 return !player.allPropertyCards.isEmpty ? noDealCard : nil
             case .collectNow:
-                // Block if we have money at risk but not enough to absorb ($5M demand)
                 return player.bankTotal > 0 && player.bankTotal <= 5 ? noDealCard : nil
             case .bigSpender:
-                // Block if nearly broke (but have something to lose)
                 return player.bankTotal > 0 && player.bankTotal <= 2 ? noDealCard : nil
             default:
                 return nil
@@ -268,19 +266,15 @@ enum AIStrategy {
         // Medium: protect complete sets or block wins
         switch actionType {
         case .dealSnatcher:
-            // Always protect if we have a complete set
             return player.completedSets > 0 ? noDealCard : nil
         case .quickGrab:
-            // Protect if we're 1 away from completing a set
             let nearComplete = player.properties.values.filter {
                 !$0.isComplete && $0.properties.count >= $0.color.setSize - 1
             }
             return !nearComplete.isEmpty ? noDealCard : nil
         case .swapIt:
-            // Protect if we'd lose a set-completing property
             return player.completedSets > 0 ? noDealCard : nil
         case .collectNow, .bigSpender:
-            // Only protect if we're very short on cash
             return player.bankTotal < 2 ? noDealCard : nil
         default:
             return nil
@@ -580,10 +574,22 @@ enum AIStrategy {
             return AIDecision(card: grabCard, destination: .action, targetPlayerIndex: targetIndex)
         }
 
+        // SwapIt: trade our cheapest incomplete property for their most expensive one
         let player = state.players[playerIndex]
         if let swapCard = hand.first(where: { if case .action(.swapIt) = $0.type { return true }; return false }),
            !player.allPropertyCards.isEmpty {
-            return AIDecision(card: swapCard, destination: .action, targetPlayerIndex: targetIndex)
+            let ourCheapest = player.properties.values
+                .filter { !$0.isComplete && !$0.properties.isEmpty }
+                .flatMap { $0.properties }
+                .min(by: { $0.monetaryValue < $1.monetaryValue })
+            let theirBest = target.properties.values
+                .filter { !$0.isComplete && !$0.properties.isEmpty }
+                .flatMap { $0.properties }
+                .max(by: { $0.monetaryValue < $1.monetaryValue })
+            // Only swap if we're trading up
+            if let ours = ourCheapest, let theirs = theirBest, theirs.monetaryValue > ours.monetaryValue {
+                return AIDecision(card: swapCard, destination: .action, targetPlayerIndex: targetIndex)
+            }
         }
 
         return nil

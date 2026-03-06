@@ -108,6 +108,8 @@ struct GameState: Codable {
     var pendingPayments: [PendingPayment]
     var turnNumber: Int
     var playerStats: [PlayerStats] = []
+    /// The player who went first (set once at game start, never changes).
+    var firstPlayerIndex: Int = 0
     /// Ordered list of player indices who still need their own NoDeal window for a multi-target
     /// action (Big Spender, Collect Dues rent). The first player in the queue is shown next;
     /// when it's empty, payments are processed.
@@ -127,11 +129,19 @@ struct GameState: Codable {
 
     var activePlayerCount: Int { players.count }
 
+    /// Turn order position (1-based) for a given player index.
+    func turnOrder(for playerIndex: Int) -> Int {
+        let n = players.count
+        return (playerIndex - firstPlayerIndex + n) % n + 1
+    }
+
     init(players: [Player], deck: [Card]) {
         self.players = players
         self.deck = deck
         self.discardPile = []
-        self.currentPlayerIndex = Int.random(in: 0..<players.count)
+        let startIdx = Int.random(in: 0..<players.count)
+        self.currentPlayerIndex = startIdx
+        self.firstPlayerIndex = startIdx
         self.cardsPlayedThisTurn = 0
         self.phase = .drawing
         self.pendingDoubleUp = PendingDoubleUp()

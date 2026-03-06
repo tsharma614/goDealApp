@@ -103,6 +103,7 @@ final class GameViewModel {
             let name = namePool.isEmpty ? "CPU" : namePool.removeFirst()
             players.append(Player(name: name, isHuman: false))
         }
+        players.shuffle()
 
         let deck = DeckBuilder.buildDeck()
         var state = GameState(players: players, deck: deck)
@@ -117,7 +118,7 @@ final class GameViewModel {
 
         let engine = GameEngine(state: state)
         self.engine = engine
-        self.localPlayerIndex = 0
+        self.localPlayerIndex = players.firstIndex(where: { $0.isHuman }) ?? 0
 
         // Setup CPU players
         for (idx, player) in state.players.enumerated() where !player.isHuman {
@@ -142,20 +143,22 @@ final class GameViewModel {
         let hostName = !setupName.isEmpty ? setupName : session.myPeerID.displayName
         let guests = session.connectedPeers
 
-        var players: [Player] = [Player(name: hostName.isEmpty ? "You" : hostName, isHuman: true)]
+        let resolvedHostName = hostName.isEmpty ? "You" : hostName
+        var players: [Player] = [Player(name: resolvedHostName, isHuman: true)]
         for peer in guests {
             players.append(Player(name: peer.displayName, isHuman: true))
         }
 
         // Add CPU players
         var namePool = Self.cpuNamePool
-            .filter { $0.lowercased() != (hostName.isEmpty ? "you" : hostName).lowercased() }
+            .filter { $0.lowercased() != resolvedHostName.lowercased() }
             .shuffled()
         let actualCPUCount = max(0, min(cpuCount, 5 - players.count))
         for _ in 0..<actualCPUCount {
             let name = namePool.isEmpty ? "CPU" : namePool.removeFirst()
             players.append(Player(name: name, isHuman: false))
         }
+        players.shuffle()
 
         let deck = DeckBuilder.buildDeck()
         var state = GameState(players: players, deck: deck)
@@ -169,11 +172,14 @@ final class GameViewModel {
         let engine = GameEngine(state: state)
         self.engine = engine
         self.networkSession = session
-        self.localPlayerIndex = localPlayerIndex
+        // Find host's index after shuffle
+        self.localPlayerIndex = players.firstIndex(where: { $0.name == resolvedHostName }) ?? 0
 
         // Build peer → player-index map (keyed by displayName, matching NetworkSession.send toPeerIDs)
-        for (offset, peer) in guests.enumerated() {
-            peerPlayerIndexMap[peer.displayName] = offset + 1
+        for peer in guests {
+            if let idx = players.firstIndex(where: { $0.name == peer.displayName }) {
+                peerPlayerIndexMap[peer.displayName] = idx
+            }
         }
 
         // Setup CPU players (host runs their turns)
@@ -223,22 +229,25 @@ final class GameViewModel {
         let setupName = setup.humanPlayerName.trimmingCharacters(in: .whitespaces)
         let hostName = !setupName.isEmpty ? setupName : GKLocalPlayer.local.displayName
 
-        var players: [Player] = [Player(name: hostName.isEmpty ? "You" : hostName, isHuman: true)]
-        var map: [String: Int] = [:]
-        for (offset, (peerID, name)) in zip(session.connectedPeerIDs, session.connectedPeerNames).enumerated() {
+        let resolvedHostName = hostName.isEmpty ? "You" : hostName
+        var players: [Player] = [Player(name: resolvedHostName, isHuman: true)]
+        // Track peerID → player name so we can rebuild the map after shuffle
+        var peerIDToName: [(String, String)] = []
+        for (peerID, name) in zip(session.connectedPeerIDs, session.connectedPeerNames) {
             players.append(Player(name: name, isHuman: true))
-            map[peerID] = offset + 1
+            peerIDToName.append((peerID, name))
         }
 
         // Add CPU players
         var namePool = Self.cpuNamePool
-            .filter { $0.lowercased() != (hostName.isEmpty ? "you" : hostName).lowercased() }
+            .filter { $0.lowercased() != resolvedHostName.lowercased() }
             .shuffled()
         let actualCPUCount = max(0, min(cpuCount, 5 - players.count))
         for _ in 0..<actualCPUCount {
             let name = namePool.isEmpty ? "CPU" : namePool.removeFirst()
             players.append(Player(name: name, isHuman: false))
         }
+        players.shuffle()
 
         let deck = DeckBuilder.buildDeck()
         var state = GameState(players: players, deck: deck)
@@ -252,7 +261,15 @@ final class GameViewModel {
         let engine = GameEngine(state: state)
         self.engine = engine
         self.networkSession = session
-        self.localPlayerIndex = localPlayerIndex
+        // Find host's index after shuffle
+        self.localPlayerIndex = players.firstIndex(where: { $0.name == resolvedHostName }) ?? 0
+        // Rebuild peer → player-index map after shuffle
+        var map: [String: Int] = [:]
+        for (peerID, name) in peerIDToName {
+            if let idx = players.firstIndex(where: { $0.name == name }) {
+                map[peerID] = idx
+            }
+        }
         self.peerPlayerIndexMap = map
 
         // Setup CPU players (host runs their turns)
@@ -1017,6 +1034,7 @@ final class GameViewModel {
                 .map { (gamePlayerID: $0, displayName: $1) }
             RecentOpponentsStore.record(opponents: opponents, roomCode: nil)
         }
+
     }
 
     private func clearError() {
@@ -1126,8 +1144,9 @@ final class GameViewModel {
     /// Host: reinitialize the game with the same players / session. Broadcasts initial state.
     private func newMultiplayerGame() {
         guard let session = networkSession else { return }
-        // Preserve human/CPU distinction from previous game
-        let players = state.players.map { Player(name: $0.name, isHuman: $0.isHuman) }
+        // Preserve human/CPU distinction from previous game, reshuffle seating
+        var players = state.players.map { Player(name: $0.name, isHuman: $0.isHuman) }
+        players.shuffle()
 
         let deck = DeckBuilder.buildDeck()
         var newState = GameState(players: players, deck: deck)
@@ -1141,6 +1160,20 @@ final class GameViewModel {
         let newEngine = GameEngine(state: newState)
         newEngine.onGameOver = { [weak self] wi in self?.handleGameOver(winnerIndex: wi) }
         newEngine.onError = { [weak self] msg in self?.errorMessage = msg }
+
+        // Update localPlayerIndex and peer map after shuffle
+        let myName = state.players[localPlayerIndex].name
+        self.localPlayerIndex = players.firstIndex(where: { $0.name == myName }) ?? 0
+        // Rebuild peer map: invert old map to get peerID → old name, then find new index
+        let invertedOldMap = Dictionary(uniqueKeysWithValues: peerPlayerIndexMap.map { ($1, $0) })
+        var newMap: [String: Int] = [:]
+        for (oldIdx, peerID) in invertedOldMap {
+            let peerName = state.players[oldIdx].name
+            if let newIdx = players.firstIndex(where: { $0.name == peerName }) {
+                newMap[peerID] = newIdx
+            }
+        }
+        self.peerPlayerIndexMap = newMap
 
         // Recreate CPU players for new engine
         let oldDifficulty = cpuPlayers.first?.difficulty ?? .medium
@@ -1183,7 +1216,7 @@ final class GameViewModel {
         }
         self.cpuPlayers = newVM.cpuPlayers
         self.networkSession = nil
-        self.localPlayerIndex = 0
+        self.localPlayerIndex = newVM.localPlayerIndex
         self.peerPlayerIndexMap = [:]
         self.playerDisconnectedAlert = false
         self.isShowingNoDealSheet = false

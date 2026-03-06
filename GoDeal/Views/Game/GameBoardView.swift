@@ -48,6 +48,9 @@ struct GameBoardView: View {
     }
     @State private var preActionState: PreActionState? = nil
 
+    // Turn transition banner
+    @State private var turnBannerName: String? = nil
+
     // Wild reassignment state
     @State private var longPressedSet: PropertySet? = nil
     @State private var wildToReassign: Card? = nil    // nested sheet inside longPressedSet sheet
@@ -111,15 +114,17 @@ struct GameBoardView: View {
                         ? max(geo.size.width * 0.72, 260)
                         : max(geo.size.width - 40, 280)
                     ScrollView(.horizontal, showsIndicators: false) {
+                        let n = viewModel.state.players.count
+                        let local = viewModel.localPlayerIndex
+                        // Order opponents by turn sequence: player after you first, then wrapping around
+                        let orderedOpponents = (1..<n).map { offset in (local + offset) % n }
                         HStack(spacing: 8) {
-                            ForEach(viewModel.state.players.indices, id: \.self) { idx in
-                                if idx != viewModel.localPlayerIndex {
-                                    OpponentAreaView(
-                                        player: viewModel.state.players[idx],
-                                        isCurrentTurn: viewModel.state.currentPlayerIndex == idx
-                                    )
-                                    .frame(width: opponentCardWidth)
-                                }
+                            ForEach(orderedOpponents, id: \.self) { idx in
+                                OpponentAreaView(
+                                    player: viewModel.state.players[idx],
+                                    isCurrentTurn: viewModel.state.currentPlayerIndex == idx
+                                )
+                                .frame(width: opponentCardWidth)
                             }
                         }
                         .padding(.horizontal)
@@ -202,6 +207,13 @@ struct GameBoardView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .colorScheme(.dark)
+
+                // Turn transition banner
+                if let name = turnBannerName {
+                    turnBanner(name: name)
+                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                        .zIndex(10)
+                }
 
                 // Game Over overlay
                 if case .gameOver(let winnerIdx) = viewModel.state.phase {
@@ -829,6 +841,22 @@ struct GameBoardView: View {
                 }
             }
         }
+        .onChange(of: viewModel.state.currentPlayerIndex) { _, newIdx in
+            guard case .drawing = viewModel.state.phase,
+                  viewModel.state.players.indices.contains(newIdx) else { return }
+            let name = newIdx == viewModel.localPlayerIndex
+                ? "Your Turn"
+                : "\(viewModel.state.players[newIdx].name)'s Turn"
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                turnBannerName = name
+            }
+            Task {
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                withAnimation(.easeOut(duration: 0.3)) {
+                    turnBannerName = nil
+                }
+            }
+        }
         .onChange(of: viewModel.state.phase) { oldPhase, _ in
             // Show "+N cards" badge when human finishes drawing
             if case .drawing = oldPhase, viewModel.isHumanTurn {
@@ -938,6 +966,26 @@ struct GameBoardView: View {
             }
 
         }
+    }
+
+    // MARK: - Turn Banner
+
+    private func turnBanner(name: String) -> some View {
+        Text(name)
+            .font(.title2.weight(.black))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 28)
+            .padding(.vertical, 14)
+            .background(
+                Capsule()
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        Capsule()
+                            .stroke(name == "Your Turn" ? orange.opacity(0.6) : .white.opacity(0.2), lineWidth: 1.5)
+                    )
+            )
+            .shadow(color: .black.opacity(0.4), radius: 20, y: 4)
+            .allowsHitTesting(false)
     }
 
     // MARK: - Controls Bar
