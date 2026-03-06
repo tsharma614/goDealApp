@@ -63,6 +63,9 @@
 		AA200000000000000000049 /* GameKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA10000000000000000004A /* GameKit.framework */; };
 		AA20000000000000000004C /* TutorialView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA10000000000000000004C /* TutorialView.swift */; };
 		AA20000000000000000004D /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA10000000000000000004D /* Haptics.swift */; };
+		AA200000000000000000056 /* SoundManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000056 /* SoundManager.swift */; };
+		AA200000000000000000057 /* RecentOpponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000057 /* RecentOpponents.swift */; };
+		AA200000000000000000058 /* InviteManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000058 /* InviteManager.swift */; };
 		BFC12DAC2F55FBF800CB1D1D /* GO!.png in Resources */ = {isa = PBXBuildFile; fileRef = BFC12DAB2F55FBF800CB1D1D /* GO!.png */; };
 /* End PBXBuildFile section */
 
@@ -135,6 +138,9 @@
 		AA10000000000000000004B /* GoDeal.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GoDeal.entitlements; sourceTree = "<group>"; };
 		AA10000000000000000004C /* TutorialView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorialView.swift; sourceTree = "<group>"; };
 		AA10000000000000000004D /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
+		AA100000000000000000056 /* SoundManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundManager.swift; sourceTree = "<group>"; };
+		AA100000000000000000057 /* RecentOpponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentOpponents.swift; sourceTree = "<group>"; };
+		AA100000000000000000058 /* InviteManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InviteManager.swift; sourceTree = "<group>"; };
 		AA1000000000000000000F0 /* GoDeal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GoDeal.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA1000000000000000000F1 /* GoDealTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GoDealTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		BFC12DAB2F55FBF800CB1D1D /* GO!.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "GO!.png"; sourceTree = "<group>"; };
@@ -210,6 +216,8 @@
 				AA100000000000000000009 /* PropertyNameStore.swift */,
 				AA10000000000000000002A /* Extensions.swift */,
 				AA10000000000000000004D /* Haptics.swift */,
+				AA100000000000000000056 /* SoundManager.swift */,
+				AA100000000000000000057 /* RecentOpponents.swift */,
 				AA100000000000000000035 /* GameLogger.swift */,
 			);
 			path = Models;
@@ -334,6 +342,7 @@
 				AA100000000000000000041 /* MultipeerSession.swift */,
 				AA100000000000000000046 /* GameKitSession.swift */,
 				AA100000000000000000047 /* GameKitMatchmaker.swift */,
+				AA100000000000000000058 /* InviteManager.swift */,
 			);
 			path = Network;
 			sourceTree = "<group>";
@@ -473,6 +482,8 @@
 				AA200000000000000000033 /* PropertyPickerSheet.swift in Sources */,
 				AA200000000000000000034 /* CardDetailSheet.swift in Sources */,
 				AA20000000000000000004D /* Haptics.swift in Sources */,
+				AA200000000000000000056 /* SoundManager.swift in Sources */,
+				AA200000000000000000057 /* RecentOpponents.swift in Sources */,
 				AA200000000000000000035 /* GameLogger.swift in Sources */,
 				AA200000000000000000036 /* GameLogSheet.swift in Sources */,
 				AA20000000000000000001F /* CardCustomizationView.swift in Sources */,
@@ -484,6 +495,7 @@
 				AA200000000000000000045 /* NetworkSession.swift in Sources */,
 				AA200000000000000000046 /* GameKitSession.swift in Sources */,
 				AA200000000000000000047 /* GameKitMatchmaker.swift in Sources */,
+				AA200000000000000000058 /* InviteManager.swift in Sources */,
 				AA200000000000000000048 /* GameKitLobbyView.swift in Sources */,
 				AA20000000000000000004C /* TutorialView.swift in Sources */,
 			);
@@ -640,7 +652,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = GoDeal/GoDeal.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 15;
 				DEVELOPMENT_TEAM = U9782HGY2C;
 				INFOPLIST_FILE = GoDeal/App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
@@ -664,7 +676,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = GoDeal/GoDeal.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 15;
 				DEVELOPMENT_TEAM = U9782HGY2C;
 				INFOPLIST_FILE = GoDeal/App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
@@ -686,7 +698,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 15;
 				DEVELOPMENT_TEAM = U9782HGY2C;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
@@ -705,7 +717,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 15;
 				DEVELOPMENT_TEAM = U9782HGY2C;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;

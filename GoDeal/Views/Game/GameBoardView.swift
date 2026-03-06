@@ -205,7 +205,7 @@ struct GameBoardView: View {
 
                 // Game Over overlay
                 if case .gameOver(let winnerIdx) = viewModel.state.phase {
-                    gameOverOverlay(winnerName: viewModel.state.players[winnerIdx].name)
+                    gameOverOverlay(winnerIndex: winnerIdx)
                 }
             }
         }
@@ -816,7 +816,7 @@ struct GameBoardView: View {
                 if newCount < oldCount { lost.insert(color) }
             }
             guard !lost.isEmpty else { return }
-            Haptics.notification(.warning)
+            SoundManager.steal()
             withAnimation(.easeIn(duration: 0.08)) {
                 propertyLostFlash = true
                 flashingPropertyColors = lost
@@ -1007,74 +1007,172 @@ struct GameBoardView: View {
 
     // MARK: - Game Over
 
-    private func gameOverOverlay(winnerName: String) -> some View {
-        ZStack {
-            Color.black.opacity(0.6).ignoresSafeArea()
+    private func gameOverOverlay(winnerIndex: Int) -> some View {
+        let winnerName = viewModel.state.players[winnerIndex].name
+        return ZStack {
+            Color.black.opacity(0.8).ignoresSafeArea()
 
-            VStack(spacing: 24) {
-                Image(systemName: "trophy.fill")
-                    .font(.system(size: 64))
-                    .foregroundStyle(.yellow)
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Header
+                    VStack(spacing: 8) {
+                        Text("🏆").font(.system(size: 52))
+                        Text("\(winnerName) Wins!")
+                            .font(.largeTitle.bold()).foregroundStyle(.white)
+                        Text("3 complete sets · Turn \(viewModel.state.turnNumber) · \(viewModel.state.players.count) players")
+                            .font(.caption).foregroundStyle(.white.opacity(0.7))
+                    }
+                    .padding(.top, 40)
 
-                Text(winnerName == viewModel.humanPlayer?.name ? "You Win!" : "\(winnerName) Wins!")
-                    .font(.largeTitle.weight(.black))
-                    .foregroundStyle(.white)
+                    // Per-player stat cards
+                    ForEach(viewModel.state.players.indices, id: \.self) { idx in
+                        playerEndCard(playerIndex: idx, winnerIndex: winnerIndex)
+                    }
 
-                Text("3 complete property sets!")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.8))
+                    // Share + Play Again + Quit
+                    VStack(spacing: 12) {
+                        ShareLink(item: shareText(winnerIndex: winnerIndex)) {
+                            Label("Share Results", systemImage: "square.and.arrow.up")
+                                .font(.headline)
+                                .frame(width: 200)
+                                .padding()
+                                .background(.white, in: RoundedRectangle(cornerRadius: 14))
+                                .foregroundStyle(.black)
+                        }
 
-                if viewModel.networkSession != nil {
-                    // Multiplayer: coordinate with all players
-                    if viewModel.isHost {
-                        if viewModel.isWaitingForPlayAgain {
-                            Text("Waiting for others…")
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.7))
-                            Button("Cancel") { viewModel.cancelWaitingForPlayAgain() }
-                                .foregroundStyle(.white.opacity(0.5))
+                        if viewModel.networkSession != nil {
+                            if viewModel.isHost {
+                                if viewModel.isWaitingForPlayAgain {
+                                    Text("Waiting for others…")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.white.opacity(0.7))
+                                    Button("Cancel") { viewModel.cancelWaitingForPlayAgain() }
+                                        .foregroundStyle(.white.opacity(0.5))
+                                } else {
+                                    Button {
+                                        viewModel.requestPlayAgain()
+                                    } label: {
+                                        Text("Play Again")
+                                            .font(.headline)
+                                            .frame(width: 200)
+                                            .padding()
+                                            .background(.blue, in: RoundedRectangle(cornerRadius: 14))
+                                            .foregroundStyle(.white)
+                                    }
+                                }
+                            } else {
+                                Text("Waiting for host…")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.white.opacity(0.7))
+                            }
                         } else {
                             Button {
-                                viewModel.requestPlayAgain()
+                                showPlayAgainSetup = true
                             } label: {
                                 Text("Play Again")
                                     .font(.headline)
                                     .frame(width: 200)
                                     .padding()
-                                    .background(.white, in: RoundedRectangle(cornerRadius: 14))
-                                    .foregroundStyle(.black)
+                                    .background(.blue, in: RoundedRectangle(cornerRadius: 14))
+                                    .foregroundStyle(.white)
                             }
                         }
-                    } else {
-                        Text("Waiting for host…")
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.7))
-                    }
-                } else {
-                    // Solo: open setup screen
-                    Button {
-                        showPlayAgainSetup = true
-                    } label: {
-                        Text("Play Again")
-                            .font(.headline)
-                            .frame(width: 200)
-                            .padding()
-                            .background(.white, in: RoundedRectangle(cornerRadius: 14))
-                            .foregroundStyle(.black)
-                    }
-                }
 
-                Button {
-                    onExit?()
-                } label: {
-                    Text("Quit to Menu")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.55))
+                        Button {
+                            onExit?()
+                        } label: {
+                            Text("Quit to Menu")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.55))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.bottom, 32)
                 }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
             }
-            .padding(40)
         }
+    }
+
+    @ViewBuilder
+    private func playerEndCard(playerIndex: Int, winnerIndex: Int) -> some View {
+        let player = viewModel.state.players[playerIndex]
+        let stats = playerIndex < viewModel.state.playerStats.count
+            ? viewModel.state.playerStats[playerIndex] : PlayerStats()
+        let isWinner = playerIndex == winnerIndex
+        let badges = superlatives(for: playerIndex, winnerIndex: winnerIndex)
+
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("\(isWinner ? "🏆 " : "")\(player.name)")
+                    .font(.headline.bold()).foregroundStyle(.white)
+                Spacer()
+            }
+            HStack(spacing: 4) {
+                ForEach(badges, id: \.self) { badge in
+                    Text(badge).font(.caption2).foregroundStyle(.yellow)
+                }
+            }
+            Divider().overlay(Color.white.opacity(0.2))
+            HStack {
+                statCell("💰 Collected", "$\(stats.rentCollected)M")
+                statCell("💸 Paid", "$\(stats.rentPaid)M")
+            }
+            HStack {
+                statCell("🏦 Peak Bank", "$\(stats.peakBankValue)M")
+                statCell("🤏 Deals", "\(stats.steals)")
+            }
+            HStack {
+                statCell("🚫 Blocks", "\(stats.noDealPlayed)")
+                statCell("🃏 Drew", "\(stats.moneyCardsDrawn)💵 \(stats.propertyCardsDrawn)🏠 \(stats.actionCardsDrawn)⚡ \(stats.rentCardsDrawn)🏘")
+            }
+        }
+        .padding(12)
+        .background(isWinner ? Color.yellow.opacity(0.15) : Color.white.opacity(0.08),
+                     in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func statCell(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.caption2).foregroundStyle(.white.opacity(0.6))
+            Text(value).font(.caption).foregroundStyle(.white)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func superlatives(for playerIndex: Int, winnerIndex: Int) -> [String] {
+        let all = viewModel.state.playerStats
+        guard playerIndex < all.count else { return [] }
+        let s = all[playerIndex]
+        let n = all.count
+        var result: [String] = []
+
+        func isTop<T: Comparable>(_ kp: KeyPath<PlayerStats, T>) -> Bool {
+            n < 2 || all.indices.allSatisfy { $0 == playerIndex || all[$0][keyPath: kp] <= s[keyPath: kp] }
+        }
+
+        if isTop(\.steals) && s.steals >= 2              { result.append("Property Pirate 🤏") }
+        if isTop(\.noDealPlayed) && s.noDealPlayed >= 2   { result.append("Deal Blocker 🚫") }
+        if isTop(\.rentCollected) && s.rentCollected > 0  { result.append("Rent Machine 💰") }
+        if isTop(\.peakBankValue) && s.peakBankValue > 0  { result.append("Cash Baron 💵") }
+        if playerIndex == winnerIndex && viewModel.state.turnNumber <= 12 { result.append("Speed Racer ⚡") }
+        if playerIndex == winnerIndex && result.isEmpty    { result.append("Property Mogul 🏠") }
+        if s.rentPaid >= 8                                { result.append("Human ATM 🏧") }
+        if s.steals == 0 && n > 1                         { result.append("Too Nice 😇") }
+        if s.noDealPlayed == 0 && n > 1                   { result.append("Took the Hits 😤") }
+        if result.isEmpty { result.append(playerIndex == winnerIndex ? "Property Mogul 🏠" : "Better Luck Next Time 🎲") }
+        return result
+    }
+
+    private func shareText(winnerIndex: Int) -> String {
+        let stats = winnerIndex < viewModel.state.playerStats.count
+            ? viewModel.state.playerStats[winnerIndex] : PlayerStats()
+        let w = viewModel.state.players[winnerIndex].name
+        return """
+        🎉 Go! Deal!
+        \(w) won in \(viewModel.state.turnNumber) turns!
+        💰 $\(stats.rentCollected)M collected · 💸 $\(stats.rentPaid)M paid · 🤏 \(stats.steals) deals
+        """
     }
 
     // MARK: - Card Interaction

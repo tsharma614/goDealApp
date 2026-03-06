@@ -22,6 +22,12 @@ struct GoDealApp: App {
                       let root = scene.windows.first?.rootViewController else { return }
                 root.present(vc, animated: true)
             }
+            // Register for incoming invites once authenticated
+            if GKLocalPlayer.local.isAuthenticated {
+                Task { @MainActor in
+                    InviteManager.shared.register()
+                }
+            }
         }
     }
 }

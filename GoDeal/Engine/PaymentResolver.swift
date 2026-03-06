@@ -53,6 +53,18 @@ enum PaymentResolver {
         state.players[debtorIndex] = debtor
         state.players[creditorIndex] = creditor
 
+        // Track rent collected/paid and peak bank
+        if state.playerStats.count > creditorIndex {
+            state.playerStats[creditorIndex].rentCollected += totalPaid
+            let newBankTotal = state.players[creditorIndex].bankTotal
+            if newBankTotal > state.playerStats[creditorIndex].peakBankValue {
+                state.playerStats[creditorIndex].peakBankValue = newBankTotal
+            }
+        }
+        if state.playerStats.count > debtorIndex {
+            state.playerStats[debtorIndex].rentPaid += totalPaid
+        }
+
         let allPaidCards = bankPaid + propPaid.map { $0.1 }
         return PaymentResult(
             amountPaid: totalPaid,

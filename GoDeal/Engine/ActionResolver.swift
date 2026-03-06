@@ -116,6 +116,7 @@ enum ActionResolver {
         if targetSet.hasApartmentBuilding {
             state.players[attackerIndex].properties[color]?.hasApartmentBuilding = true
         }
+        if attackerIndex < state.playerStats.count { state.playerStats[attackerIndex].steals += 1 }
         GameLogger.shared.event("[\(state.players[attackerIndex].name)] stole complete \(color.displayName) set (\(targetSet.properties.count) cards\(targetSet.hasCornerStore ? " + CornerStore" : "")\(targetSet.hasApartmentBuilding ? " + ApartmentBuilding" : "")) from \(state.players[targetIndex].name)")
     }
 
@@ -163,6 +164,7 @@ enum ActionResolver {
 
         // Attacker gets the property — put in same color set
         state.players[attackerIndex].placeProperty(stolenCard, in: fromColor)
+        if attackerIndex < state.playerStats.count { state.playerStats[attackerIndex].steals += 1 }
         GameLogger.shared.event("[\(state.players[attackerIndex].name)] Quick Grab stole '\(stolenCard.name)' (\(fromColor.displayName)) from \(state.players[targetIndex].name)")
     }
 
@@ -211,6 +213,7 @@ enum ActionResolver {
 
         state.players[attackerIndex].placeProperty(targetCard, in: targetColor)
         state.players[targetIndex].placeProperty(attackerCard, in: attackerColor)
+        if attackerIndex < state.playerStats.count { state.playerStats[attackerIndex].steals += 1 }
         GameLogger.shared.event("[\(state.players[attackerIndex].name)] Swap It — gave '\(attackerCard.name)' (\(attackerColor.displayName)), took '\(targetCard.name)' (\(targetColor.displayName)) from \(state.players[targetIndex].name)")
     }
 
@@ -271,6 +274,8 @@ enum ActionResolver {
     private static func resolveDealForward(playerIndex: Int, state: inout GameState) {
         let drawn = drawCards(count: 2, from: &state)
         state.players[playerIndex].addToHand(drawn)
+        // Track the drawn cards' types in stats
+        GameState.trackDrawStats(&state.playerStats, cards: drawn, for: playerIndex)
         GameLogger.shared.event("[\(state.players[playerIndex].name)] Deal Forward — drew \(drawn.count) cards (hand: \(state.players[playerIndex].hand.count))")
         // Does NOT count as "playing" a card slot — stays in playing phase
     }
@@ -299,11 +304,11 @@ enum ActionResolver {
             set.hasCornerStore = true
             state.players[playerIndex].properties[color] = set
             GameLogger.shared.event("[\(state.players[playerIndex].name)] added Corner Store to \(color.displayName)")
-            GameLogger.shared.addActivity("\(state.players[playerIndex].name) built Corner Store on \(color.displayName)")
+            GameLogger.shared.addActivity("\(state.players[playerIndex].name) built Corner Store on \(color.colorDot)")
         } else if eligible.count == 1, let color = eligible.keys.first {
             state.players[playerIndex].properties[color]?.hasCornerStore = true
             GameLogger.shared.event("[\(state.players[playerIndex].name)] added Corner Store to \(color.displayName) (only eligible set)")
-            GameLogger.shared.addActivity("\(state.players[playerIndex].name) built Corner Store on \(color.displayName)")
+            GameLogger.shared.addActivity("\(state.players[playerIndex].name) built Corner Store on \(color.colorDot)")
         } else {
             // Multiple eligible sets — need UI to pick
             state.phase = .awaitingPropertyChoice(
@@ -329,11 +334,11 @@ enum ActionResolver {
             set.hasApartmentBuilding = true
             state.players[playerIndex].properties[color] = set
             GameLogger.shared.event("[\(state.players[playerIndex].name)] added Apartment Building to \(color.displayName)")
-            GameLogger.shared.addActivity("\(state.players[playerIndex].name) built Apt. Building on \(color.displayName)")
+            GameLogger.shared.addActivity("\(state.players[playerIndex].name) built Apt. Building on \(color.colorDot)")
         } else if eligible.count == 1, let color = eligible.keys.first {
             state.players[playerIndex].properties[color]?.hasApartmentBuilding = true
             GameLogger.shared.event("[\(state.players[playerIndex].name)] added Apartment Building to \(color.displayName) (only eligible set)")
-            GameLogger.shared.addActivity("\(state.players[playerIndex].name) built Apt. Building on \(color.displayName)")
+            GameLogger.shared.addActivity("\(state.players[playerIndex].name) built Apt. Building on \(color.colorDot)")
         }
     }
 

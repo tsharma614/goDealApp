@@ -1,4 +1,5 @@
 import SwiftUI
+import GameKit
 
 // MARK: - Main Menu View
 
@@ -11,10 +12,15 @@ struct MainMenuView: View {
     @State private var isShowingTutorial = false
     @State private var gameViewModel = GameViewModel()
     @State private var customizationViewModel = CustomizationViewModel()
+    @State private var inviteError: String? = nil
+
+    // Brand palette
+    private let orange     = Color(red: 0.96, green: 0.65, blue: 0.22)
+    private let orangeDark = Color(red: 0.82, green: 0.48, blue: 0.08)
+    private let blue       = Color(red: 0.22, green: 0.62, blue: 0.92)
+    private let felt       = Color(red: 0.07, green: 0.20, blue: 0.12)
 
     var body: some View {
-        // Using if/else instead of fullScreenCover avoids iOS modal presentation
-        // ordering conflicts (can't present a cover while a sheet is dismissing).
         if isShowingGame {
             GameBoardView(onExit: { isShowingGame = false })
                 .environment(gameViewModel)
@@ -26,54 +32,22 @@ struct MainMenuView: View {
     private var mainMenuStack: some View {
         NavigationStack {
             ZStack {
-                // Gradient background
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.08, green: 0.15, blue: 0.35),
-                        Color(red: 0.12, green: 0.25, blue: 0.15),
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
+                feltBackground
 
                 VStack(spacing: 0) {
                     Spacer()
 
-                    // Logo
                     logoSection
                         .padding(.bottom, 48)
 
-                    // Buttons
-                    VStack(spacing: 16) {
-                        menuButton(title: "Play Now", icon: "play.fill", color: .green) {
-                            isShowingSetup = true
-                        }
-
-                        menuButton(title: "Play with Friends", icon: "person.2.fill", color: .blue) {
-                            isShowingLobby = true
-                        }
-
-                        menuButton(title: "Play Online", icon: "globe", color: .cyan) {
-                            isShowingOnlineLobby = true
-                        }
-
-                        menuButton(title: "Customize Cards", icon: "paintbrush.fill", color: .purple) {
-                            isShowingCustomization = true
-                        }
-
-                        menuButton(title: "How to Play", icon: "questionmark.circle.fill", color: .orange) {
-                            isShowingTutorial = true
-                        }
-                    }
-                    .padding(.horizontal, 40)
+                    buttonSection
+                        .padding(.horizontal, 32)
 
                     Spacer()
 
-                    // Footer
                     Text("Go! Deal! — A financial card game")
                         .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.35))
+                        .foregroundStyle(.white.opacity(0.28))
                         .padding(.bottom, 20)
                 }
             }
@@ -90,13 +64,10 @@ struct MainMenuView: View {
                 .environment(customizationViewModel)
         }
         .sheet(isPresented: $isShowingLobby) {
-            LobbyView { session, localIdx in
-                // Build the right VM then show the game board.
-                // Since isShowingGame flips the entire root view (not a modal),
-                // there is no presentation conflict with the lobby sheet.
+            LobbyView { session, localIdx, cpuCount in
                 let setup = GameSetup()
                 if session.role == .host {
-                    gameViewModel = GameViewModel(setup: setup, session: session, localPlayerIndex: localIdx)
+                    gameViewModel = GameViewModel(setup: setup, session: session, localPlayerIndex: localIdx, cpuCount: cpuCount)
                 } else {
                     gameViewModel = GameViewModel(session: session, localPlayerIndex: localIdx)
                 }
@@ -108,9 +79,9 @@ struct MainMenuView: View {
             TutorialView()
         }
         .sheet(isPresented: $isShowingOnlineLobby) {
-            GameKitLobbyView { session, localIdx in
+            GameKitLobbyView { session, localIdx, cpuCount in
                 if session.role == .host {
-                    gameViewModel = GameViewModel(setup: GameSetup(), session: session, localPlayerIndex: localIdx)
+                    gameViewModel = GameViewModel(setup: GameSetup(), session: session, localPlayerIndex: localIdx, cpuCount: cpuCount)
                 } else {
                     gameViewModel = GameViewModel(session: session, localPlayerIndex: localIdx)
                 }
@@ -118,66 +89,175 @@ struct MainMenuView: View {
                 isShowingOnlineLobby = false
             }
         }
+        .onChange(of: InviteManager.shared.pendingInvite != nil) { _, hasPending in
+            guard hasPending, !isShowingGame else { return }
+            acceptPendingInvite()
+        }
+        .alert("Invite Error", isPresented: Binding(
+            get: { inviteError != nil },
+            set: { if !$0 { inviteError = nil } }
+        )) {
+            Button("OK") { inviteError = nil }
+        } message: {
+            Text(inviteError ?? "")
+        }
+    }
+
+    private func acceptPendingInvite() {
+        Task { @MainActor in
+            do {
+                let (match, role) = try await InviteManager.shared.acceptInvite()
+                let session = GameKitSession(match: match, role: role)
+                let allIDs = ([GKLocalPlayer.local.gamePlayerID]
+                    + match.players.map { $0.gamePlayerID }).sorted()
+                let localIdx = allIDs.firstIndex(of: GKLocalPlayer.local.gamePlayerID) ?? 0
+
+                if role == .host {
+                    gameViewModel = GameViewModel(setup: GameSetup(), session: session, localPlayerIndex: localIdx)
+                } else {
+                    gameViewModel = GameViewModel(session: session, localPlayerIndex: localIdx)
+                }
+                isShowingGame = true
+            } catch {
+                inviteError = error.localizedDescription
+                InviteManager.shared.clearInvite()
+            }
+        }
+    }
+
+    // MARK: - Background
+
+    private var feltBackground: some View {
+        ZStack {
+            felt.ignoresSafeArea()
+
+            // Tiled suit watermark
+            Canvas { ctx, size in
+                let suits = ["♠", "♥", "♦", "♣"]
+                let step: CGFloat = 58
+                let rows = Int(size.height / step) + 3
+                let cols = Int(size.width  / step) + 3
+                for row in 0..<rows {
+                    let xOffset: CGFloat = row % 2 == 0 ? 0 : step / 2
+                    for col in 0..<cols {
+                        let suit = suits[(row + col) % 4]
+                        let x = CGFloat(col) * step + xOffset - step
+                        let y = CGFloat(row) * step - step
+                        ctx.draw(
+                            Text(suit)
+                                .font(.system(size: 20))
+                                .foregroundStyle(Color.white.opacity(0.055)),
+                            at: CGPoint(x: x, y: y),
+                            anchor: .center
+                        )
+                    }
+                }
+            }
+            .ignoresSafeArea()
+
+            // Vignette
+            RadialGradient(
+                colors: [.clear, .black.opacity(0.5)],
+                center: .center,
+                startRadius: 140,
+                endRadius: 400
+            )
+            .ignoresSafeArea()
+        }
     }
 
     // MARK: - Logo
 
     private var logoSection: some View {
-        VStack(spacing: 8) {
-            ZStack {
-                Circle()
-                    .fill(LinearGradient(colors: [.yellow, .orange], startPoint: .top, endPoint: .bottom))
-                    .frame(width: 100, height: 100)
-                    .shadow(color: .yellow.opacity(0.4), radius: 20)
+        VStack(spacing: 16) {
+            Image("GoDealLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: 280)
+                .shadow(color: orange.opacity(0.3), radius: 16)
 
-                VStack(spacing: -4) {
-                    Text("GO!")
-                        .font(.system(size: 28, weight: .black, design: .rounded))
-                        .foregroundStyle(.black)
-                    Text("DEAL!")
-                        .font(.system(size: 20, weight: .black, design: .rounded))
-                        .foregroundStyle(.black)
-                }
+            HStack(spacing: 8) {
+                Text("♠").foregroundStyle(.white.opacity(0.4))
+                Text("Collect 3 complete sets to win")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.65))
+                Text("♠").foregroundStyle(.white.opacity(0.4))
             }
-
-            Text("Go! Deal!")
-                .font(.system(size: 42, weight: .black, design: .rounded))
-                .foregroundStyle(.white)
-
-            Text("Collect 3 complete sets to win!")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.7))
         }
     }
 
-    // MARK: - Menu Button
+    // MARK: - Buttons
 
-    private func menuButton(
-        title: String,
-        icon: String,
-        color: Color,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(.title3)
-                    .frame(width: 30)
-                Text(title)
-                    .font(.headline)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .opacity(0.6)
+    private var buttonSection: some View {
+        VStack(spacing: 14) {
+            // Primary CTA
+            Button { isShowingSetup = true } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "play.fill")
+                        .font(.title3.weight(.bold))
+                    Text("Play Now")
+                        .font(.title3.weight(.bold))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 17)
+                .background(
+                    LinearGradient(colors: [orange, orangeDark], startPoint: .top, endPoint: .bottom),
+                    in: RoundedRectangle(cornerRadius: 16)
+                )
+                .foregroundStyle(.white)
+                .shadow(color: orange.opacity(0.38), radius: 12, y: 5)
             }
-            .padding()
+            .buttonStyle(.plain)
+
+            // Multiplayer row
+            HStack(spacing: 12) {
+                multiCard("Play with\nFriends", icon: "person.2.fill", color: blue) {
+                    isShowingLobby = true
+                }
+                multiCard("Play\nOnline", icon: "globe", color: orange) {
+                    isShowingOnlineLobby = true
+                }
+            }
+
+            // Secondary links
+            HStack(spacing: 16) {
+                Button { isShowingCustomization = true } label: {
+                    Label("Customize", systemImage: "paintbrush.fill")
+                }
+                Text("·").opacity(0.35)
+                Button { isShowingTutorial = true } label: {
+                    Label("How to Play", systemImage: "questionmark.circle")
+                }
+            }
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.white.opacity(0.6))
+            .padding(.top, 2)
+        }
+    }
+
+    private func multiCard(_ title: String, icon: String, color: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.title2)
+                    .foregroundStyle(color)
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             .frame(maxWidth: .infinity)
-            .background(color.opacity(0.2), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(
+            .padding(.vertical, 18)
+            .background(
                 RoundedRectangle(cornerRadius: 14)
-                    .stroke(color.opacity(0.5), lineWidth: 1)
+                    .fill(.white.opacity(0.07))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(color.opacity(0.4), lineWidth: 1)
+                    )
             )
-            .foregroundStyle(.white)
         }
         .buttonStyle(.plain)
     }

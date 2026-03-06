@@ -111,6 +111,7 @@ final class GameViewModel {
         for playerIdx in 0..<state.players.count {
             let drawn = ActionResolver.drawCards(count: 5, from: &state)
             state.players[playerIdx].addToHand(drawn)
+            GameState.trackDrawStats(&state.playerStats, cards: drawn, for: playerIdx)
         }
         state.phase = .drawing
 
@@ -135,10 +136,8 @@ final class GameViewModel {
 
     // MARK: - Multiplayer Host Init
 
-    /// Host creates the game after lobby is ready. All players are real humans; no CPUPlayer objects.
-    init(setup: GameSetup, session: MultipeerSession, localPlayerIndex: Int = 0) {
-        // Prefer setup name, fall back to whatever name the host typed in the lobby
-        // (stored as MCPeerID.displayName), then "You" as last resort.
+    /// Host creates the game after lobby is ready. Human peers + optional CPU opponents.
+    init(setup: GameSetup, session: MultipeerSession, localPlayerIndex: Int = 0, cpuCount: Int = 0) {
         let setupName = setup.humanPlayerName.trimmingCharacters(in: .whitespaces)
         let hostName = !setupName.isEmpty ? setupName : session.myPeerID.displayName
         let guests = session.connectedPeers
@@ -148,11 +147,22 @@ final class GameViewModel {
             players.append(Player(name: peer.displayName, isHuman: true))
         }
 
+        // Add CPU players
+        var namePool = Self.cpuNamePool
+            .filter { $0.lowercased() != (hostName.isEmpty ? "you" : hostName).lowercased() }
+            .shuffled()
+        let actualCPUCount = max(0, min(cpuCount, 5 - players.count))
+        for _ in 0..<actualCPUCount {
+            let name = namePool.isEmpty ? "CPU" : namePool.removeFirst()
+            players.append(Player(name: name, isHuman: false))
+        }
+
         let deck = DeckBuilder.buildDeck()
         var state = GameState(players: players, deck: deck)
         for playerIdx in 0..<state.players.count {
             let drawn = ActionResolver.drawCards(count: 5, from: &state)
             state.players[playerIdx].addToHand(drawn)
+            GameState.trackDrawStats(&state.playerStats, cards: drawn, for: playerIdx)
         }
         state.phase = .drawing
 
@@ -166,6 +176,11 @@ final class GameViewModel {
             peerPlayerIndexMap[peer.displayName] = offset + 1
         }
 
+        // Setup CPU players (host runs their turns)
+        for (idx, player) in state.players.enumerated() where !player.isHuman {
+            cpuPlayers.append(CPUPlayer(playerIndex: idx, difficulty: setup.cpuDifficulty, engine: engine))
+        }
+
         engine.onGameOver = { [weak self] winnerIndex in
             self?.handleGameOver(winnerIndex: winnerIndex)
         }
@@ -175,7 +190,6 @@ final class GameViewModel {
         wireSessionCallbacks()
 
         // Broadcast initial state so guests render the full game board immediately
-        // rather than showing a placeholder 1-player state. Mirrors GameKit host init.
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.networkSession?.send(.gameState(self.engine.state))
@@ -204,8 +218,8 @@ final class GameViewModel {
 
     // MARK: - GameKit Host Init
 
-    /// Host init for internet play. Creates full game state from GKMatch players.
-    init(setup: GameSetup, session: GameKitSession, localPlayerIndex: Int = 0) {
+    /// Host init for internet play. Human peers + optional CPU opponents.
+    init(setup: GameSetup, session: GameKitSession, localPlayerIndex: Int = 0, cpuCount: Int = 0) {
         let setupName = setup.humanPlayerName.trimmingCharacters(in: .whitespaces)
         let hostName = !setupName.isEmpty ? setupName : GKLocalPlayer.local.displayName
 
@@ -216,11 +230,22 @@ final class GameViewModel {
             map[peerID] = offset + 1
         }
 
+        // Add CPU players
+        var namePool = Self.cpuNamePool
+            .filter { $0.lowercased() != (hostName.isEmpty ? "you" : hostName).lowercased() }
+            .shuffled()
+        let actualCPUCount = max(0, min(cpuCount, 5 - players.count))
+        for _ in 0..<actualCPUCount {
+            let name = namePool.isEmpty ? "CPU" : namePool.removeFirst()
+            players.append(Player(name: name, isHuman: false))
+        }
+
         let deck = DeckBuilder.buildDeck()
         var state = GameState(players: players, deck: deck)
         for i in 0..<state.players.count {
             let drawn = ActionResolver.drawCards(count: 5, from: &state)
             state.players[i].addToHand(drawn)
+            GameState.trackDrawStats(&state.playerStats, cards: drawn, for: i)
         }
         state.phase = .drawing
 
@@ -229,6 +254,11 @@ final class GameViewModel {
         self.networkSession = session
         self.localPlayerIndex = localPlayerIndex
         self.peerPlayerIndexMap = map
+
+        // Setup CPU players (host runs their turns)
+        for (idx, player) in state.players.enumerated() where !player.isHuman {
+            cpuPlayers.append(CPUPlayer(playerIndex: idx, difficulty: setup.cpuDifficulty, engine: engine))
+        }
 
         engine.onGameOver = { [weak self] wi in self?.handleGameOver(winnerIndex: wi) }
         engine.onError = { [weak self] msg in self?.errorMessage = msg }
@@ -267,12 +297,14 @@ final class GameViewModel {
     /// Draw cards at start of turn. Routed through the host in multiplayer.
     func startTurn() {
         guard isHumanTurn, case .drawing = phase else { return }
+        SoundManager.cardDraw()
         routeAction(.startTurn, callerIndex: localPlayerIndex)
     }
 
     /// Play a card from hand to bank
     func playToBank(cardId: UUID) {
         guard isHumanTurn, state.canPlayCard else { return }
+        SoundManager.bankCard()
         routeAction(.playToBank(cardId: cardId), callerIndex: localPlayerIndex)
         clearError()
     }
@@ -280,6 +312,7 @@ final class GameViewModel {
     /// Play a property card to a specific color group
     func playProperty(cardId: UUID, color: PropertyColor) {
         guard isHumanTurn, state.canPlayCard else { return }
+        SoundManager.placeProperty()
         routeAction(.playProperty(cardId: cardId, color: color), callerIndex: localPlayerIndex)
         clearError()
     }
@@ -287,6 +320,7 @@ final class GameViewModel {
     /// Play a wild property card and assign a color
     func playWildProperty(cardId: UUID, color: PropertyColor) {
         guard isHumanTurn, state.canPlayCard else { return }
+        SoundManager.placeProperty()
         routeAction(.playWildProperty(cardId: cardId, color: color), callerIndex: localPlayerIndex)
         clearError()
     }
@@ -300,6 +334,7 @@ final class GameViewModel {
         stealSecondaryCardId: UUID? = nil
     ) {
         guard isHumanTurn, state.canPlayCard else { return }
+        SoundManager.steal()
         routeAction(.playActionWithPreSelection(
             cardId: cardId,
             targetPlayerIndex: targetPlayerIndex,
@@ -326,6 +361,7 @@ final class GameViewModel {
     /// Play a rent card
     func playRent(cardId: UUID, color: PropertyColor, targetPlayerIndex: Int? = nil) {
         guard isHumanTurn, state.canPlayCard else { return }
+        SoundManager.collectRent()
         routeAction(.playRent(cardId: cardId, color: color, targetPlayerIndex: targetPlayerIndex),
                     callerIndex: localPlayerIndex)
         clearError()
@@ -335,6 +371,7 @@ final class GameViewModel {
     /// Human plays No Deal! as a response
     func playNoDeal(cardId: UUID) {
         noDealInteracted = true
+        SoundManager.noDealBlock()
         log.event("Human played No Deal! — cardId=\(cardId)")
         routeAction(.playNoDeal(cardId: cardId), callerIndex: localPlayerIndex)
         isShowingNoDealSheet = false
@@ -355,6 +392,7 @@ final class GameViewModel {
     /// Human ends their turn
     func endTurn() {
         guard isHumanTurn else { return }
+        SoundManager.endTurn()
         log.event("Human ended turn \(state.turnNumber) — hand=\(humanPlayer?.hand.count ?? 0) cards, sets=\(humanPlayer?.completedSets ?? 0)/3")
         routeAction(.endTurn, callerIndex: localPlayerIndex)
         if isHost { triggerCPUIfNeeded() }
@@ -525,7 +563,7 @@ final class GameViewModel {
                     self.pendingNoDealActionDetail = self.computeNoDealDetail(
                         actionCard: capturedActionCard, attackerIdx: capturedAttackerIdx, targetIdx: capturedTargetIdx)
                     self.noDealInteracted = false
-                    Haptics.notification(.warning)
+                    SoundManager.paymentDue()
                     self.isShowingNoDealSheet = true
                 }
             }
@@ -544,7 +582,7 @@ final class GameViewModel {
                         guard let self,
                               case .awaitingPayment(let d, _, _, _) = self.state.phase,
                               d == humanIdx else { return }
-                        Haptics.notification(.warning)
+                        SoundManager.paymentDue()
                         self.isShowingPaymentSheet = true
                     }
                 }
@@ -647,7 +685,8 @@ final class GameViewModel {
 
     @MainActor
     func triggerCPUIfNeeded() {
-        guard networkSession == nil else { return }   // no CPU in multiplayer
+        // Allow CPU in solo AND in multiplayer when host has CPU players
+        guard networkSession == nil || (isHost && !cpuPlayers.isEmpty) else { return }
         guard !isHumanTurn else { return }
         let cpuIdx = state.currentPlayerIndex
         guard let cpu = cpuPlayers.first(where: { $0.playerIndex == cpuIdx }) else { return }
@@ -684,6 +723,9 @@ final class GameViewModel {
             default:
                 break
             }
+
+            // Broadcast state to guests after CPU actions
+            self.broadcastState()
 
             // Chain to next CPU turn if needed — brief pause so SwiftUI can process the phase change
             if !state.players[state.currentPlayerIndex].isHuman,
@@ -752,15 +794,14 @@ final class GameViewModel {
                     )
                     self.noDealInteracted = false
                     self.log.event("Showing NoDeal sheet — attacker=\(self.pendingNoDealAttackerName) card=\(capturedActionCard.name)")
-                    Haptics.notification(.warning)
+                    SoundManager.paymentDue()
                     self.isShowingNoDealSheet = true
                 }
-            } else if networkSession == nil {
-                // Solo: CPU handles response automatically
-                if let cpu = cpuPlayers.first(where: { $0.playerIndex == targetIdx }) {
-                    Task { @MainActor in
-                        await cpu.respondToAction(actionCard: actionCard, engine: engine)
-                    }
+            } else if let cpu = cpuPlayers.first(where: { $0.playerIndex == targetIdx }) {
+                // CPU handles response automatically (solo or multiplayer host with CPUs)
+                Task { @MainActor in
+                    await cpu.respondToAction(actionCard: actionCard, engine: engine)
+                    self.broadcastState()
                 }
                 // Watchdog: if CPU response gets stuck (race condition), rescue after 15s
                 stuckStateTask = Task { @MainActor [weak self] in
@@ -770,7 +811,7 @@ final class GameViewModel {
                     self.triggerCPUIfNeeded()
                 }
             }
-            // Multiplayer non-local target: wait for that device to send response
+            // Multiplayer non-local human target: wait for that device to send response
 
         case .awaitingPayment(let debtorIdx, let creditorIdx, let amount, let reason):
             if debtorIdx == humanIdx {
@@ -795,16 +836,17 @@ final class GameViewModel {
                         self.pendingPaymentAmount = capturedAmount
                         self.pendingPaymentCreditorIndex = capturedCreditorIdx
                         self.pendingPaymentReason = capturedReason
-                        Haptics.notification(.warning)
+                        SoundManager.paymentDue()
                         self.isShowingPaymentSheet = true
                     }
                 }
-            } else if networkSession == nil {
-                // Solo: CPU debtor — auto-resolve
+            } else if !state.players[debtorIdx].isHuman {
+                // CPU debtor — auto-resolve (solo or multiplayer host with CPUs)
                 engine.resolveCPUPayment(debtorIndex: debtorIdx, creditorIndex: creditorIdx, amount: amount)
+                broadcastState()
                 triggerCPUIfNeeded()
             }
-            // Multiplayer non-local: wait for that player's device to send submitPayment
+            // Multiplayer non-local human: wait for that player's device to send submitPayment
 
         case .awaitingPropertyChoice(let chooserIdx, _):
             if chooserIdx == humanIdx {
@@ -818,11 +860,11 @@ final class GameViewModel {
                           c == capturedChooserIdx else { return }
                     self.isShowingPropertyChoiceSheet = true
                 }
-            } else if networkSession == nil {
-                // Solo: CPU needs to make a property choice
+            } else if cpuPlayers.contains(where: { $0.playerIndex == chooserIdx }) {
+                // CPU needs to make a property choice (solo or multiplayer host with CPUs)
                 triggerCPUIfNeeded()
             }
-            // Multiplayer non-local: wait for network
+            // Multiplayer non-local human: wait for network
 
         case .discarding(let idx):
             if idx == humanIdx {
@@ -832,9 +874,10 @@ final class GameViewModel {
 
         case .drawing:
             if isHumanTurn {
-                Haptics.impact(.light)  // subtle cue: it's your turn
-            } else if networkSession == nil {
-                // Solo: immediately start CPU's turn (CPU auto-draws; human uses Draw button)
+                SoundManager.endTurn()  // subtle cue: it's your turn
+            } else if !state.players[state.currentPlayerIndex].isHuman,
+                      cpuPlayers.contains(where: { $0.playerIndex == state.currentPlayerIndex }) {
+                // CPU's turn — auto-draw (solo or multiplayer host with CPUs)
                 triggerCPUIfNeeded()
                 stuckStateTask = Task { @MainActor [weak self] in
                     try? await Task.sleep(nanoseconds: 15_000_000_000)
@@ -843,11 +886,13 @@ final class GameViewModel {
                     self.triggerCPUIfNeeded()
                 }
             }
-            // Multiplayer: each player presses their own Draw button; no auto-draw
+            // Multiplayer human: each player presses their own Draw button; no auto-draw
 
         case .playing:
-            if networkSession == nil && !isHumanTurn {
-                // Solo: immediately resume CPU's turn
+            if !isHumanTurn,
+               !state.players[state.currentPlayerIndex].isHuman,
+               cpuPlayers.contains(where: { $0.playerIndex == state.currentPlayerIndex }) {
+                // CPU's turn — auto-resume (solo or multiplayer host with CPUs)
                 triggerCPUIfNeeded()
                 stuckStateTask = Task { @MainActor [weak self] in
                     try? await Task.sleep(nanoseconds: 15_000_000_000)
@@ -935,8 +980,19 @@ final class GameViewModel {
     private func handleGameOver(winnerIndex: Int) {
         guard state.players.indices.contains(winnerIndex) else { return }
         gameOverWinnerName = state.players[winnerIndex].name
-        Haptics.notification(winnerIndex == localPlayerIndex ? .success : .error)
+        if winnerIndex == localPlayerIndex {
+            SoundManager.win()
+        } else {
+            SoundManager.lose()
+        }
         log.event("Game over — winner: \(state.players[winnerIndex].name)")
+
+        // Record GameKit opponents for rematch
+        if let session = networkSession as? GameKitSession {
+            let opponents = zip(session.connectedPeerIDs, session.connectedPeerNames)
+                .map { (gamePlayerID: $0, displayName: $1) }
+            RecentOpponentsStore.record(opponents: opponents, roomCode: nil)
+        }
     }
 
     private func clearError() {
@@ -1046,20 +1102,28 @@ final class GameViewModel {
     /// Host: reinitialize the game with the same players / session. Broadcasts initial state.
     private func newMultiplayerGame() {
         guard let session = networkSession else { return }
-        let playerNames = state.players.map { $0.name }
-        let players = playerNames.map { Player(name: $0, isHuman: true) }
+        // Preserve human/CPU distinction from previous game
+        let players = state.players.map { Player(name: $0.name, isHuman: $0.isHuman) }
 
         let deck = DeckBuilder.buildDeck()
         var newState = GameState(players: players, deck: deck)
         for playerIdx in 0..<newState.players.count {
             let drawn = ActionResolver.drawCards(count: 5, from: &newState)
             newState.players[playerIdx].addToHand(drawn)
+            GameState.trackDrawStats(&newState.playerStats, cards: drawn, for: playerIdx)
         }
         newState.phase = .drawing
 
         let newEngine = GameEngine(state: newState)
         newEngine.onGameOver = { [weak self] wi in self?.handleGameOver(winnerIndex: wi) }
         newEngine.onError = { [weak self] msg in self?.errorMessage = msg }
+
+        // Recreate CPU players for new engine
+        let oldDifficulty = cpuPlayers.first?.difficulty ?? .medium
+        cpuPlayers = []
+        for (idx, player) in players.enumerated() where !player.isHuman {
+            cpuPlayers.append(CPUPlayer(playerIndex: idx, difficulty: oldDifficulty, engine: newEngine))
+        }
 
         self.engine = newEngine
         self.isWaitingForPlayAgain = false

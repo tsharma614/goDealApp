@@ -29,9 +29,23 @@ final class GameEngine {
         let drawCount = state.players[playerIndex].hand.isEmpty ? 5 : 2
         let drawn = ActionResolver.drawCards(count: drawCount, from: &state)
         state.players[playerIndex].addToHand(drawn)
+        trackCardsDraw(drawn, for: playerIndex)
         state.phase = .playing
         log.event("[\(state.players[playerIndex].name)] drew \(drawn.count) cards (hand: \(state.players[playerIndex].hand.count)) — turn \(state.turnNumber)")
         log.addActivity("\(state.players[playerIndex].name) drew \(drawn.count) cards")
+    }
+
+    /// Record drawn cards in per-player stats (money/property/action/rent).
+    func trackCardsDraw(_ cards: [Card], for playerIndex: Int) {
+        guard playerIndex < state.playerStats.count else { return }
+        for card in cards {
+            switch card.type {
+            case .money:                   state.playerStats[playerIndex].moneyCardsDrawn += 1
+            case .property, .wildProperty: state.playerStats[playerIndex].propertyCardsDrawn += 1
+            case .action:                  state.playerStats[playerIndex].actionCardsDrawn += 1
+            case .rent, .wildRent:         state.playerStats[playerIndex].rentCardsDrawn += 1
+            }
+        }
     }
 
     // MARK: - Play Card
@@ -59,7 +73,11 @@ final class GameEngine {
             state.players[playerIndex].addToBank(card)
             state.discardPile.append(card)
             state.pendingDoubleUp.rentCardPlayed = false
-            log.event("[\(player.name)] banked '\(card.name)' ($\(card.monetaryValue)M) — bank total now $\(state.players[playerIndex].bankTotal)M")
+            let bankNow = state.players[playerIndex].bankTotal
+            if playerIndex < state.playerStats.count, bankNow > state.playerStats[playerIndex].peakBankValue {
+                state.playerStats[playerIndex].peakBankValue = bankNow
+            }
+            log.event("[\(player.name)] banked '\(card.name)' ($\(card.monetaryValue)M) — bank total now $\(bankNow)M")
             log.addActivity("\(player.name) banked \(card.name) ($\(card.monetaryValue)M)")
             checkWinAndAdvance()
 
@@ -119,7 +137,7 @@ final class GameEngine {
             state.discardPile.append(card)
             let multiplier = state.pendingDoubleUp.isActive ? 2 : 1
             state.pendingDoubleUp.isActive = false
-            let colorName = color?.displayName ?? "wild"
+            let colorName = color?.colorDot ?? "🌈"
             let targetName = targetPlayerIndex.map { state.players[$0].name } ?? "all"
             log.event("[\(player.name)] plays rent '\(card.name)' color=\(colorName) ×\(multiplier) → \(targetName)")
             log.addActivity("\(player.name) collecting rent on \(colorName)\(multiplier > 1 ? " ×2" : "")")
@@ -148,6 +166,9 @@ final class GameEngine {
               card.isNoDeal else { return }
 
         state.discardPile.append(card)
+        if playerIndex < state.playerStats.count {
+            state.playerStats[playerIndex].noDealPlayed += 1
+        }
         log.event("[\(state.players[playerIndex].name)] played No Deal! against '\(actionCard.name)'")
 
         // For multi-target actions NoDeal only protects THIS player — advance the queue so

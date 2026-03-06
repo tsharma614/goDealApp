@@ -9,12 +9,13 @@ struct LobbyView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("playerName") private var storedName: String = ""
 
-    var onStartGame: (MultipeerSession, Int) -> Void
+    var onStartGame: (MultipeerSession, Int, Int) -> Void   // session, localIdx, cpuCount
 
     @State private var role: MCRole? = nil
     @State private var displayName: String = ""
     @State private var session: MultipeerSession? = nil
     @State private var localPlayerIndex: Int = 0
+    @State private var cpuCount: Int = 0
 
     var body: some View {
         NavigationStack {
@@ -113,19 +114,27 @@ struct LobbyView: View {
         playerListCard(session: session)
             .padding(.horizontal)
 
-        let count = session.connectedPeers.count + 1
+        // CPU opponents stepper
+        let humanCount = session.connectedPeers.count + 1
+        let maxCPU = max(0, 5 - humanCount)
+        if maxCPU > 0 {
+            Stepper("CPU Opponents: \(cpuCount)", value: $cpuCount, in: 0...maxCPU)
+                .padding(.horizontal)
+        }
+
+        let totalCount = humanCount + cpuCount
         Button {
             startHostGame(session: session)
         } label: {
             Label(
-                count >= 2 ? "Start Game (\(count) players)" : "Waiting for players…",
+                totalCount >= 2 ? "Start Game (\(totalCount) players)" : "Waiting for players…",
                 systemImage: "play.fill"
             )
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
         }
         .buttonStyle(.borderedProminent)
-        .disabled(session.connectedPeers.isEmpty)
+        .disabled(totalCount < 2)
         .padding(.horizontal)
 
         Text("Make sure everyone is on the same Wi-Fi network")
@@ -270,7 +279,7 @@ struct LobbyView: View {
         }
         session.send(.gameStart)
         session.stopAdvertising()
-        onStartGame(session, 0)
+        onStartGame(session, 0, cpuCount)
     }
 
     @discardableResult
@@ -292,5 +301,5 @@ struct LobbyView: View {
 }
 
 #Preview {
-    LobbyView { _, _ in }
+    LobbyView { _, _, _ in }
 }

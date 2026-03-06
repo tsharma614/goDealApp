@@ -6,7 +6,7 @@ import GameKit
 /// Internet multiplayer lobby.
 /// Flow: Create/Join code entry → waiting lobby → host taps Start → game begins.
 struct GameKitLobbyView: View {
-    var onStartGame: (GameKitSession, Int) -> Void
+    var onStartGame: (GameKitSession, Int, Int) -> Void   // session, localIdx, cpuCount
 
     @Environment(\.dismiss) private var dismiss
 
@@ -24,6 +24,9 @@ struct GameKitLobbyView: View {
     @State private var activeRole: MCRole = .guest
     @State private var activeCode: String = ""
     @State private var localPlayerIndex: Int = 0
+    @State private var recentOpponents: [RecentOpponent] = []
+    @State private var isShowingRecents = false
+    @State private var cpuCount: Int = 0
 
     private enum EntryMode { case create, join }
 
@@ -51,7 +54,10 @@ struct GameKitLobbyView: View {
                 }
             }
         }
-        .onAppear { isAuthenticated = GKLocalPlayer.local.isAuthenticated }
+        .onAppear {
+            isAuthenticated = GKLocalPlayer.local.isAuthenticated
+            recentOpponents = RecentOpponentsStore.load()
+        }
     }
 
     // MARK: - Entry Screen
@@ -66,6 +72,11 @@ struct GameKitLobbyView: View {
             .padding(.horizontal)
 
             if entryMode == .create { createView } else { joinView }
+
+            // Recent opponents — quick rematch
+            if !recentOpponents.isEmpty && !matchmaker.isSearching {
+                recentOpponentsSection
+            }
 
             if matchmaker.isSearching {
                 ProgressView("Connecting…")
@@ -215,7 +226,7 @@ struct GameKitLobbyView: View {
         .padding(.top, 16)
         .onChange(of: session.gameStartReceived) { _, started in
             guard started else { return }
-            onStartGame(session, session.assignedPlayerIndex)
+            onStartGame(session, session.assignedPlayerIndex, 0)  // guest doesn't run CPUs
             dismiss()
         }
     }
@@ -267,24 +278,35 @@ struct GameKitLobbyView: View {
 
     @ViewBuilder
     private func hostLobbyButtons(session: GameKitSession) -> some View {
-        let count = session.connectedPeerNames.count + 1
+        let humanCount = session.connectedPeerNames.count + 1
+        let maxCPU = max(0, 5 - humanCount)
+
+        // CPU opponents stepper
+        if maxCPU > 0 {
+            Stepper("CPU Opponents: \(cpuCount)", value: $cpuCount, in: 0...maxCPU)
+                .padding(.horizontal)
+        }
+
+        let totalCount = humanCount + cpuCount
         Button { startHostGame(session: session) } label: {
             Label(
-                count >= 2 ? "Start Game (\(count) players)" : "Waiting for players…",
+                totalCount >= 2 ? "Start Game (\(totalCount) players)" : "Waiting for players…",
                 systemImage: "play.fill"
             )
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
         }
         .buttonStyle(.borderedProminent)
-        .disabled(count < 2)
+        .disabled(totalCount < 2)
         .padding(.horizontal)
 
-        Text("More players can still join with code \(activeCode)")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .multilineTextAlignment(.center)
-            .padding(.horizontal)
+        if !activeCode.isEmpty {
+            Text("More players can still join with code \(activeCode)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+        }
     }
 
     private var guestWaitingView: some View {
@@ -354,8 +376,96 @@ struct GameKitLobbyView: View {
         }
         session.send(.gameStart)
         let localIdx = allIDs.firstIndex(of: GKLocalPlayer.local.gamePlayerID) ?? 0
-        onStartGame(session, localIdx)
+        onStartGame(session, localIdx, cpuCount)
         dismiss()
+    }
+
+    // MARK: - Recent Opponents
+
+    private var recentOpponentsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Recent Players")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if recentOpponents.count > 3 {
+                    Button(isShowingRecents ? "Show Less" : "Show All") {
+                        withAnimation { isShowingRecents.toggle() }
+                    }
+                    .font(.caption)
+                }
+            }
+
+            let displayed = isShowingRecents ? recentOpponents : Array(recentOpponents.prefix(3))
+            ForEach(displayed) { opp in
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(opp.displayName)
+                            .font(.subheadline.weight(.medium))
+                        Text(relativeDate(opp.lastPlayed))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button {
+                        rematch(opponent: opp)
+                    } label: {
+                        Label("Invite", systemImage: "paperplane.fill")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(matchmaker.isSearching)
+                }
+                .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) {
+                        withAnimation {
+                            RecentOpponentsStore.remove(gamePlayerID: opp.gamePlayerID)
+                            recentOpponents = RecentOpponentsStore.load()
+                        }
+                    } label: {
+                        Label("Remove", systemImage: "trash")
+                    }
+                }
+            }
+        }
+        .padding()
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 14))
+        .padding(.horizontal)
+    }
+
+    private func rematch(opponent: RecentOpponent) {
+        errorMessage = nil
+        Task {
+            do {
+                let (match, role) = try await matchmaker.invitePlayers(
+                    gamePlayerIDs: [opponent.gamePlayerID]
+                )
+                let session = GameKitSession(match: match, role: role)
+                let allIDs = ([GKLocalPlayer.local.gamePlayerID]
+                    + match.players.map { $0.gamePlayerID }).sorted()
+                localPlayerIndex = allIDs.firstIndex(of: GKLocalPlayer.local.gamePlayerID) ?? 0
+
+                activeSession = session
+                activeRole = role
+                activeCode = ""
+                screen = .lobby
+
+                if role == .guest {
+                    setupGuestReceiver(session: session)
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+                matchmaker.isSearching = false
+            }
+        }
+    }
+
+    private func relativeDate(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 
     private func setupGuestReceiver(session: GameKitSession) {
@@ -373,5 +483,5 @@ struct GameKitLobbyView: View {
 }
 
 #Preview {
-    GameKitLobbyView { _, _ in }
+    GameKitLobbyView { _, _, _ in }
 }

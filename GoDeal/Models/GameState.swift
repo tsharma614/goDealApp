@@ -80,6 +80,20 @@ struct PendingStealPreSelection: Codable {
     var secondaryCardId: UUID? = nil // swapIt target card
 }
 
+// MARK: - Player Stats
+
+struct PlayerStats: Codable, Equatable {
+    var rentCollected: Int = 0
+    var rentPaid: Int = 0
+    var peakBankValue: Int = 0
+    var steals: Int = 0
+    var noDealPlayed: Int = 0
+    var moneyCardsDrawn: Int = 0
+    var propertyCardsDrawn: Int = 0
+    var actionCardsDrawn: Int = 0
+    var rentCardsDrawn: Int = 0
+}
+
 // MARK: - Game State
 
 struct GameState: Codable {
@@ -93,6 +107,7 @@ struct GameState: Codable {
     var pendingSteal: PendingStealPreSelection
     var pendingPayments: [PendingPayment]
     var turnNumber: Int
+    var playerStats: [PlayerStats] = []
     /// Ordered list of player indices who still need their own NoDeal window for a multi-target
     /// action (Big Spender, Collect Dues rent). The first player in the queue is shown next;
     /// when it's empty, payments are processed.
@@ -123,6 +138,7 @@ struct GameState: Codable {
         self.pendingSteal = PendingStealPreSelection()
         self.pendingPayments = []
         self.turnNumber = 1
+        self.playerStats = Array(repeating: PlayerStats(), count: players.count)
     }
 
     /// Advance the NoDeal response queue to the next player, or process payments when done.
@@ -172,5 +188,18 @@ struct GameState: Codable {
     var canPlayCard: Bool {
         guard case .playing = phase else { return false }
         return cardsPlayedThisTurn < 3
+    }
+
+    /// Track drawn cards in playerStats (used by GameViewModel during initial deal).
+    static func trackDrawStats(_ stats: inout [PlayerStats], cards: [Card], for playerIndex: Int) {
+        guard playerIndex < stats.count else { return }
+        for card in cards {
+            switch card.type {
+            case .money:                   stats[playerIndex].moneyCardsDrawn += 1
+            case .property, .wildProperty: stats[playerIndex].propertyCardsDrawn += 1
+            case .action:                  stats[playerIndex].actionCardsDrawn += 1
+            case .rent, .wildRent:         stats[playerIndex].rentCardsDrawn += 1
+            }
+        }
     }
 }

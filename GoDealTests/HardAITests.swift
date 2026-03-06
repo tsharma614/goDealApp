@@ -180,10 +180,9 @@ final class HardAITests: XCTestCase {
         state.players[1].properties[.hotZone] = partialHotZone
 
         let grabCard = makeCard(type: .action(.quickGrab))
-        let moneyCard = makeCard(type: .money(1), value: 1)
         state.players[0].addToHand(grabCard)
-        state.players[0].addToHand(moneyCard)
-        // CPU (P0) has no matching hotZone properties, so this does not complete our set.
+        // Give CPU enough bank so bank-first threshold ($5M) doesn't fire
+        state.players[0].bank = [makeCard(type: .money(5), value: 5)]
 
         let decision = AIStrategy.decideNextPlay(state: state, playerIndex: 0, difficulty: .hard)
         XCTAssertNotNil(decision)

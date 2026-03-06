@@ -715,4 +715,309 @@ final class GameEngineTests: XCTestCase {
         XCTAssertFalse(engine.state.players[0].properties[.rustDistrict]?.hasCornerStore == true,
                        "Corner Store NOT placed on Rust District")
     }
+
+    // MARK: - PlayerStats Initialization & Reset
+
+    func testPlayerStatsInitializedWithCorrectCount() {
+        let engine2 = makeEngine(playerCount: 2)
+        XCTAssertEqual(engine2.state.playerStats.count, 2)
+        XCTAssertEqual(engine2.state.playerStats[0], PlayerStats())
+        XCTAssertEqual(engine2.state.playerStats[1], PlayerStats())
+
+        let engine4 = makeEngine(playerCount: 4)
+        XCTAssertEqual(engine4.state.playerStats.count, 4)
+    }
+
+    func testPlayerStatsResetOnNewGame() {
+        let engine = makeEngine()
+        engine.state.playerStats[0].steals = 5
+        engine.state.playerStats[0].rentCollected = 10
+
+        // Create a fresh state (simulates newGame)
+        let newState = GameState(players: engine.state.players, deck: DeckBuilder.buildDeck())
+        XCTAssertEqual(newState.playerStats.count, 2)
+        XCTAssertEqual(newState.playerStats[0].steals, 0)
+        XCTAssertEqual(newState.playerStats[0].rentCollected, 0)
+    }
+
+    // MARK: - Draw Tracking
+
+    func testTurnDrawIncrementsByType() {
+        let engine = makeEngine()
+        // Give player a card so they draw 2 (not 5)
+        engine.state.players[0].addToHand(makeCard(type: .money(1)))
+        let statsBefore = engine.state.playerStats[0]
+        let totalBefore = statsBefore.moneyCardsDrawn + statsBefore.propertyCardsDrawn
+            + statsBefore.actionCardsDrawn + statsBefore.rentCardsDrawn
+
+        engine.startTurn()
+
+        let statsAfter = engine.state.playerStats[0]
+        let totalAfter = statsAfter.moneyCardsDrawn + statsAfter.propertyCardsDrawn
+            + statsAfter.actionCardsDrawn + statsAfter.rentCardsDrawn
+        XCTAssertEqual(totalAfter - totalBefore, 2, "Should track exactly 2 drawn cards")
+    }
+
+    func testTrackCardsDrawCountsByType() {
+        let engine = makeEngine()
+        let moneyCard = makeCard(type: .money(5), value: 5)
+        let propCard = makeCard(type: .property(.blueChip), value: 3)
+        let actionCard = makeCard(type: .action(.dealForward), value: 2)
+        let rentCard = Card(id: UUID(), type: .rent([.blueChip, .rustDistrict]), name: "Rent", description: "", monetaryValue: 1, assetKey: "rent_test")
+
+        engine.trackCardsDraw([moneyCard, propCard, actionCard, rentCard], for: 0)
+
+        XCTAssertEqual(engine.state.playerStats[0].moneyCardsDrawn, 1)
+        XCTAssertEqual(engine.state.playerStats[0].propertyCardsDrawn, 1)
+        XCTAssertEqual(engine.state.playerStats[0].actionCardsDrawn, 1)
+        XCTAssertEqual(engine.state.playerStats[0].rentCardsDrawn, 1)
+    }
+
+    func testDealForwardCountedInDrawStats() {
+        let engine = makeEngine()
+        engine.startTurn()
+
+        let totalBefore = engine.state.playerStats[0].moneyCardsDrawn
+            + engine.state.playerStats[0].propertyCardsDrawn
+            + engine.state.playerStats[0].actionCardsDrawn
+            + engine.state.playerStats[0].rentCardsDrawn
+
+        let dealFwd = makeCard(type: .action(.dealForward), value: 2)
+        engine.state.players[0].addToHand(dealFwd)
+        engine.playCard(cardId: dealFwd.id, as: .action)
+
+        let totalAfter = engine.state.playerStats[0].moneyCardsDrawn
+            + engine.state.playerStats[0].propertyCardsDrawn
+            + engine.state.playerStats[0].actionCardsDrawn
+            + engine.state.playerStats[0].rentCardsDrawn
+        // Deal Forward draws 2 cards — those should be counted by type
+        XCTAssertEqual(totalAfter - totalBefore, 2, "Deal Forward should track 2 drawn cards")
+    }
+
+    // MARK: - Bank & Payment Stats
+
+    func testPeakBankValueTrackedWhenBanking() {
+        let engine = makeEngine()
+        engine.startTurn()
+
+        let money5 = makeCard(type: .money(5), value: 5)
+        engine.state.players[0].addToHand(money5)
+        engine.playCard(cardId: money5.id, as: .bank)
+        XCTAssertEqual(engine.state.playerStats[0].peakBankValue, 5)
+
+        let money3 = makeCard(type: .money(3), value: 3)
+        engine.state.players[0].addToHand(money3)
+        engine.playCard(cardId: money3.id, as: .bank)
+        XCTAssertEqual(engine.state.playerStats[0].peakBankValue, 8, "Peak should be cumulative bank total")
+    }
+
+    func testCollectNowIncrementsRentCollectedAndPaid() {
+        let engine = makeEngine()
+        engine.startTurn()
+
+        // Give debtor (player 1) $5M in bank
+        engine.state.players[1].bank = [makeCard(type: .money(5), value: 5)]
+
+        ActionResolver.executeCollectNow(creditorIndex: 0, debtorIndex: 1, state: &engine.state)
+
+        XCTAssertEqual(engine.state.playerStats[0].rentCollected, 5)
+        XCTAssertEqual(engine.state.playerStats[1].rentPaid, 5)
+    }
+
+    func testPeakBankUpdatedAfterReceivingRentPayment() {
+        var state = makeEngine().state
+        state.players[0].bank = []  // creditor starts empty
+        state.players[1].bank = [makeCard(type: .money(5), value: 5)]
+
+        PaymentResolver.resolvePayment(state: &state, debtorIndex: 1, creditorIndex: 0, amount: 5)
+
+        XCTAssertGreaterThanOrEqual(state.playerStats[0].peakBankValue, 5,
+                                    "Creditor's peakBankValue should update after receiving payment")
+    }
+
+    // MARK: - Steal Stats
+
+    func testQuickGrabIncrementsSteals() {
+        var state = makeEngine().state
+        let card = makeCard(type: .property(.hotZone), value: 2)
+        state.players[1].placeProperty(card, in: .hotZone)
+
+        ActionResolver.executeQuickGrab(attackerIndex: 0, targetIndex: 1, cardId: card.id, state: &state)
+
+        XCTAssertEqual(state.playerStats[0].steals, 1)
+        XCTAssertEqual(state.playerStats[1].steals, 0, "Victim's steals should not change")
+    }
+
+    func testDealSnatcherIncrementsSteals() {
+        var state = makeEngine().state
+        state.players[1].properties[.rustDistrict] = makeCompleteSet(color: .rustDistrict)
+
+        ActionResolver.executeDealSnatcher(attackerIndex: 0, targetIndex: 1, color: .rustDistrict, state: &state)
+
+        XCTAssertEqual(state.playerStats[0].steals, 1)
+    }
+
+    func testSwapItIncrementsSteals() {
+        var state = makeEngine().state
+        let p0Card = makeCard(type: .property(.rustDistrict), value: 1)
+        let p1Card = makeCard(type: .property(.blueChip), value: 3)
+        state.players[0].placeProperty(p0Card, in: .rustDistrict)
+        state.players[1].placeProperty(p1Card, in: .blueChip)
+
+        ActionResolver.executeSwapIt(attackerIndex: 0, targetIndex: 1,
+                                     attackerCardId: p0Card.id, targetCardId: p1Card.id, state: &state)
+
+        XCTAssertEqual(state.playerStats[0].steals, 1)
+        XCTAssertEqual(state.playerStats[1].steals, 0, "Victim's steals should not change")
+    }
+
+    // MARK: - Multiplayer Correctness
+
+    func testStatsTrackedIndependentlyPerPlayer() {
+        var state = makeEngine(playerCount: 3).state
+
+        // Player 0 steals from player 1
+        let card = makeCard(type: .property(.hotZone), value: 2)
+        state.players[1].placeProperty(card, in: .hotZone)
+        ActionResolver.executeQuickGrab(attackerIndex: 0, targetIndex: 1, cardId: card.id, state: &state)
+
+        // Player 2 collects rent from player 1
+        state.players[1].bank = [makeCard(type: .money(3), value: 3)]
+        PaymentResolver.resolvePayment(state: &state, debtorIndex: 1, creditorIndex: 2, amount: 3)
+
+        XCTAssertEqual(state.playerStats[0].steals, 1)
+        XCTAssertEqual(state.playerStats[0].rentCollected, 0)
+        XCTAssertEqual(state.playerStats[1].steals, 0)
+        XCTAssertEqual(state.playerStats[1].rentPaid, 3)
+        XCTAssertEqual(state.playerStats[2].steals, 0)
+        XCTAssertEqual(state.playerStats[2].rentCollected, 3)
+    }
+
+    func testStatsAccumulateAcrossMultipleTurns() {
+        var state = makeEngine().state
+        state.players[1].bank = [
+            makeCard(type: .money(3), value: 3),
+            makeCard(type: .money(2), value: 2),
+        ]
+
+        PaymentResolver.resolvePayment(state: &state, debtorIndex: 1, creditorIndex: 0, amount: 3)
+        PaymentResolver.resolvePayment(state: &state, debtorIndex: 1, creditorIndex: 0, amount: 2)
+
+        XCTAssertEqual(state.playerStats[0].rentCollected, 5, "Should accumulate both payments")
+        XCTAssertEqual(state.playerStats[1].rentPaid, 5, "Should accumulate both payments")
+    }
+
+    // MARK: - No Deal Stats
+
+    func testNoDealPlayedIncrementsStat() {
+        let engine = makeEngine()
+        engine.startTurn()
+
+        let actionCard = makeCard(type: .action(.collectNow), value: 2)
+        engine.state.phase = .awaitingResponse(
+            targetPlayerIndex: 1, actionCard: actionCard, attackerIndex: 0
+        )
+        let noDealCard = makeCard(type: .action(.noDeal), value: 2)
+        engine.state.players[1].addToHand(noDealCard)
+
+        engine.playNoDeal(cardId: noDealCard.id, playerIndex: 1)
+
+        XCTAssertEqual(engine.state.playerStats[1].noDealPlayed, 1)
+    }
+
+    // MARK: - Hard CPU Strategy
+
+    func testHardCPUBanksBeforePlacingPropertiesWhenPoor() {
+        var state = makeEngine().state
+        state.phase = .playing
+        state.currentPlayerIndex = 1
+        state.cardsPlayedThisTurn = 0
+
+        // CPU has $3M money + a property card; bank is empty
+        let moneyCard = makeCard(type: .money(3), value: 3)
+        let propCard = makeCard(type: .property(.hotZone), value: 2)
+        state.players[1].hand = [moneyCard, propCard]
+        state.players[1].bank = []
+
+        let decision = AIStrategy.decideNextPlay(state: state, playerIndex: 1, difficulty: .hard)
+        XCTAssertNotNil(decision)
+        XCTAssertEqual(decision?.card.id, moneyCard.id, "Hard CPU should bank money first when bank < $5M")
+    }
+
+    func testHardCPUPlacesPropertyWhenBankSufficient() {
+        var state = makeEngine().state
+        state.phase = .playing
+        state.currentPlayerIndex = 1
+        state.cardsPlayedThisTurn = 0
+
+        let moneyCard = makeCard(type: .money(3), value: 3)
+        let propCard = makeCard(type: .property(.hotZone), value: 2)
+        state.players[1].hand = [moneyCard, propCard]
+        // Bank already has $6M — above $5M threshold
+        state.players[1].bank = [makeCard(type: .money(5), value: 5), makeCard(type: .money(1), value: 1)]
+
+        let decision = AIStrategy.decideNextPlay(state: state, playerIndex: 1, difficulty: .hard)
+        XCTAssertNotNil(decision)
+        XCTAssertEqual(decision?.card.id, propCard.id, "Hard CPU should place property when bank >= $5M")
+    }
+
+    func testHardCPUWinsImmediatelyEvenWhenBankLow() {
+        var state = makeEngine().state
+        state.phase = .playing
+        state.currentPlayerIndex = 1
+        state.cardsPlayedThisTurn = 0
+
+        // CPU has 2 complete sets already
+        state.players[1].properties[.rustDistrict] = makeCompleteSet(color: .rustDistrict)
+        state.players[1].properties[.blueChip] = makeCompleteSet(color: .blueChip)
+        state.players[1].bank = []  // empty bank
+
+        // Target has a complete set to steal
+        state.players[0].properties[.hotZone] = makeCompleteSet(color: .hotZone)
+
+        let snatcher = makeCard(type: .action(.dealSnatcher), value: 5)
+        let moneyCard = makeCard(type: .money(3), value: 3)
+        state.players[1].hand = [snatcher, moneyCard]
+
+        let decision = AIStrategy.decideNextPlay(state: state, playerIndex: 1, difficulty: .hard)
+        XCTAssertEqual(decision?.card.id, snatcher.id,
+                       "Hard CPU should play Deal Snatcher to WIN (priority 1) even with empty bank")
+    }
+
+    func testHardCPUBlocksOpponentNearWinEvenWhenBankLow() {
+        var state = makeEngine().state
+        state.phase = .playing
+        state.currentPlayerIndex = 1
+        state.cardsPlayedThisTurn = 0
+
+        // Opponent (player 0) has 2 complete sets + 1 incomplete near-done
+        state.players[0].properties[.rustDistrict] = makeCompleteSet(color: .rustDistrict)
+        state.players[0].properties[.blueChip] = makeCompleteSet(color: .blueChip)
+        // hotZone needs 3 — give them 2 (1 away)
+        state.players[0].placeProperty(makeCard(type: .property(.hotZone), value: 2), in: .hotZone)
+        state.players[0].placeProperty(makeCard(type: .property(.hotZone), value: 2), in: .hotZone)
+
+        state.players[1].bank = []
+        let snatcher = makeCard(type: .action(.dealSnatcher), value: 5)
+        let moneyCard = makeCard(type: .money(3), value: 3)
+        state.players[1].hand = [snatcher, moneyCard]
+
+        let decision = AIStrategy.decideNextPlay(state: state, playerIndex: 1, difficulty: .hard)
+        XCTAssertEqual(decision?.card.id, snatcher.id,
+                       "Hard CPU should play Deal Snatcher to BLOCK near-win (priority 1.5) even with empty bank")
+    }
+
+    func testHardCPUDoesNotWasteNoDealOnCollectNowWhenRich() {
+        var state = makeEngine().state
+        // Hard CPU with $10M bank
+        state.players[1].bank = [makeCard(type: .money(10), value: 10)]
+        let noDealCard = makeCard(type: .action(.noDeal), value: 2)
+        state.players[1].addToHand(noDealCard)
+
+        let collectNowCard = makeCard(type: .action(.collectNow), value: 5)
+        let result = AIStrategy.shouldPlayNoDeal(
+            state: state, playerIndex: 1, actionCard: collectNowCard, difficulty: .hard
+        )
+        XCTAssertNil(result, "Hard CPU with $10M should NOT waste No Deal on Collect Now")
+    }
 }

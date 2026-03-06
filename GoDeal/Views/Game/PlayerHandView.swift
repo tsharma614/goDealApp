@@ -51,10 +51,10 @@ struct PlayerHandView: View {
                         ))
                         .onTapGesture {
                             if isSelected {
-                                Haptics.impact(.medium)
+                                SoundManager.cardSelect()
                                 onCardPlay(card)
                             } else {
-                                Haptics.selection()
+                                SoundManager.cardSelect()
                                 onCardTap(card)
                             }
                         }

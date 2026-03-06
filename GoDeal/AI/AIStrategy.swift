@@ -133,6 +133,18 @@ enum AIStrategy {
             return decision
         }
 
+        // 1.5. Block opponent 1 card from winning (2 complete + 1 near-done incomplete)
+        if let nearWinIdx = opponentNearWin(state: state, playerIndex: playerIndex) {
+            if let d = tryDealSnatcterAgainst(hand: hand, state: state, playerIndex: playerIndex, targetIndex: nearWinIdx) {
+                return d
+            }
+            let target = state.players[nearWinIdx]
+            if let grab = hand.first(where: { if case .action(.quickGrab) = $0.type { return true }; return false }),
+               target.properties.values.contains(where: { !$0.isComplete && !$0.properties.isEmpty }) {
+                return AIDecision(card: grab, destination: .action, targetPlayerIndex: nearWinIdx)
+            }
+        }
+
         // 2. Block the leader from winning: steal their complete set if they're at 2+ sets
         if let leader = leaderIndex, state.players[leader].completedSets >= 2 {
             if let decision = tryDealSnatcterAgainst(hand: hand, state: state, playerIndex: playerIndex, targetIndex: leader) {
@@ -157,6 +169,23 @@ enum AIStrategy {
         }
         if let decision = tryHighValueRent(hand: hand, state: state, playerIndex: playerIndex, threshold: 3) {
             return decision
+        }
+
+        // 5.5. Maintain $5M bank before placing properties
+        if player.bankTotal < 5, let moneyDecision = tryBankMoney(hand: hand, playerIndex: playerIndex) {
+            return moneyDecision
+        }
+
+        // 5.75. Drain richest opponent when they're flush (>= $5M)
+        if let richOpp = otherIndices
+                .filter({ state.players[$0].bankTotal >= 5 })
+                .max(by: { state.players[$0].bankTotal < state.players[$1].bankTotal }) {
+            if let cn = hand.first(where: { if case .action(.collectNow) = $0.type { return true }; return false }) {
+                return AIDecision(card: cn, destination: .action, targetPlayerIndex: richOpp)
+            }
+            if let bs = hand.first(where: { if case .action(.bigSpender) = $0.type { return true }; return false }) {
+                return AIDecision(card: bs, destination: .action)
+            }
         }
 
         // 6. Property that advances our best partial set
@@ -217,20 +246,20 @@ enum AIStrategy {
         let player = state.players[playerIndex]
 
         if difficulty == .hard {
-            // Hard: always block attacks when they'd hurt us meaningfully
+            // Hard: always block property threats; save No Deal for big money hits
             switch actionType {
             case .dealSnatcher:
-                // Always block — never let anyone steal a complete set from us
                 return player.completedSets > 0 ? noDealCard : nil
             case .quickGrab:
-                // Block if we have any property (can't afford to lose progress)
                 return !player.allPropertyCards.isEmpty ? noDealCard : nil
             case .swapIt:
-                // Always block if we have any properties
                 return !player.allPropertyCards.isEmpty ? noDealCard : nil
-            case .collectNow, .bigSpender:
-                // Block if we'd pay more than $1M
-                return player.bankTotal > 1 ? noDealCard : nil
+            case .collectNow:
+                // Block if we have money at risk but not enough to absorb ($5M demand)
+                return player.bankTotal > 0 && player.bankTotal <= 5 ? noDealCard : nil
+            case .bigSpender:
+                // Block if nearly broke (but have something to lose)
+                return player.bankTotal > 0 && player.bankTotal <= 2 ? noDealCard : nil
             default:
                 return nil
             }
@@ -259,6 +288,18 @@ enum AIStrategy {
     }
 
     // MARK: - Private Helpers
+
+    /// Find an opponent who has 2 complete sets AND an incomplete set 1 card from completion.
+    private static func opponentNearWin(state: GameState, playerIndex: Int) -> Int? {
+        state.players.indices.filter { $0 != playerIndex }.first { idx in
+            let p = state.players[idx]
+            guard p.completedSets >= 2 else { return false }
+            return p.properties.values.contains {
+                !$0.isComplete && !$0.properties.isEmpty &&
+                ($0.color.setSize - $0.properties.count) <= 1
+            }
+        }
+    }
 
     private static func tryDealSnatcher(
         hand: [Card],

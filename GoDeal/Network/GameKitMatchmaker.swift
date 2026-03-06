@@ -26,11 +26,13 @@ extension String {
 enum MatchmakerError: LocalizedError {
     case timeout
     case notAuthenticated
+    case playerNotFound
 
     var errorDescription: String? {
         switch self {
         case .timeout:          return "Room not found. Make sure both players enter the same code and try again."
         case .notAuthenticated: return "Sign in to Game Center in Settings to play online."
+        case .playerNotFound:   return "Player not found. They may have changed their Game Center account."
         }
     }
 }
@@ -150,6 +152,84 @@ final class GameKitMatchmaker {
             + match.players.map { $0.gamePlayerID }).sorted()
         let role: MCRole = allIDs.first == GKLocalPlayer.local.gamePlayerID ? .host : .guest
         log.event("[GKMatchmaker] match ready — players: \(match.players.map { $0.displayName }) role=\(role == .host ? "host" : "guest")")
+
+        return (match, role)
+    }
+
+    /// Invite specific players by their gamePlayerIDs.
+    /// GameKit sends them a push notification; they accept → match is created.
+    func invitePlayers(gamePlayerIDs: [String], maxPlayers: Int = 5) async throws -> (GKMatch, MCRole) {
+        guard GKLocalPlayer.local.isAuthenticated else {
+            throw MatchmakerError.notAuthenticated
+        }
+
+        isSearching = true
+        log.event("[GKMatchmaker] inviting \(gamePlayerIDs.count) player(s)")
+
+        // Load GKPlayer objects from stored IDs
+        let players: [GKPlayer] = try await withCheckedThrowingContinuation { continuation in
+            GKLocalPlayer.loadPlayers(forIdentifiers: gamePlayerIDs) { players, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: players ?? [])
+                }
+            }
+        }
+        guard !players.isEmpty else {
+            isSearching = false
+            throw MatchmakerError.playerNotFound
+        }
+
+        let request = GKMatchRequest()
+        request.minPlayers = 2
+        request.maxPlayers = max(2, min(5, maxPlayers))
+        request.recipients = players
+        request.inviteMessage = "Let's play Go! Deal!"
+
+        // 90-second timeout for invites (longer than room code since we wait for human response)
+        let timeoutTask = Task { [log] in
+            try await Task.sleep(nanoseconds: 90_000_000_000)
+            GKMatchmaker.shared().cancel()
+            log.warn("[GKMatchmaker] 90s invite timeout")
+        }
+        defer { timeoutTask.cancel() }
+
+        let match: GKMatch = try await withCheckedThrowingContinuation { continuation in
+            GKMatchmaker.shared().findMatch(for: request) { [log] match, error in
+                if let error {
+                    let nsError = error as NSError
+                    if nsError.domain == GKErrorDomain,
+                       nsError.code == GKError.Code.cancelled.rawValue {
+                        continuation.resume(throwing: MatchmakerError.timeout)
+                    } else {
+                        log.error("[GKMatchmaker] invite error \(nsError.code): \(error.localizedDescription)")
+                        continuation.resume(throwing: error)
+                    }
+                    return
+                }
+                guard let match else {
+                    continuation.resume(throwing: MatchmakerError.timeout)
+                    return
+                }
+                continuation.resume(returning: match)
+            }
+        }
+
+        // Wait for peers to actually connect
+        if match.players.isEmpty {
+            log.event("[GKMatchmaker] invite accepted — waiting for peer connection...")
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                peerWatcher = PeerConnectionWatcher(match: match, continuation: cont)
+            }
+            peerWatcher = nil
+        }
+
+        // Deterministic host election
+        let allIDs = ([GKLocalPlayer.local.gamePlayerID]
+            + match.players.map { $0.gamePlayerID }).sorted()
+        let role: MCRole = allIDs.first == GKLocalPlayer.local.gamePlayerID ? .host : .guest
+        log.event("[GKMatchmaker] invite match ready — players: \(match.players.map { $0.displayName }) role=\(role == .host ? "host" : "guest")")
 
         return (match, role)
     }
