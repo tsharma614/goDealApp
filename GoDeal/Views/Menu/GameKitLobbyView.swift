@@ -173,9 +173,7 @@ struct GameKitLobbyView: View {
             .background(.quaternary, in: RoundedRectangle(cornerRadius: 16))
             .padding(.horizontal)
 
-            ShareLink(item: URL(string: "godeal://join?code=\(generatedCode)")!,
-                      subject: Text("Go! Deal!"),
-                      message: Text("Join my Go! Deal! game! Room code: \(generatedCode)")) {
+            ShareLink(item: "Join my Go! Deal! game!\nRoom code: \(generatedCode)\ngodeal://join?code=\(generatedCode)") {
                 Label("Share via AirDrop / Text", systemImage: "square.and.arrow.up")
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 4)
@@ -388,9 +386,7 @@ struct GameKitLobbyView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
 
-            ShareLink(item: URL(string: "godeal://join?code=\(activeCode)")!,
-                      subject: Text("Go! Deal!"),
-                      message: Text("Join my Go! Deal! game! Room code: \(activeCode)")) {
+            ShareLink(item: "Join my Go! Deal! game!\nRoom code: \(activeCode)\ngodeal://join?code=\(activeCode)") {
                 Label("Share Room Code", systemImage: "square.and.arrow.up")
                     .font(.callout)
             }
