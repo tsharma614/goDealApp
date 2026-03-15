@@ -424,7 +424,7 @@ struct GameKitLobbyView: View {
 
     // MARK: - Actions
 
-    private func startSearch(code: String, maxPlayers: Int = 5) {
+    private func startSearch(code: String, maxPlayers: Int = 5, retryCount: Int = 0) {
         guard !code.isEmpty else { return }
         errorMessage = nil
         Task {
@@ -446,8 +446,17 @@ struct GameKitLobbyView: View {
                     setupGuestReceiver(session: session)
                 }
             } catch {
-                errorMessage = error.localizedDescription
-                matchmaker.isSearching = false
+                // Auto-retry up to 3 times with increasing delay (for deep link joins where host may not be ready)
+                if retryCount < 3 {
+                    let delay = UInt64((retryCount + 1) * 3) * 1_000_000_000  // 3s, 6s, 9s
+                    errorMessage = "Looking for room… (attempt \(retryCount + 2)/4)"
+                    matchmaker.isSearching = false
+                    try? await Task.sleep(nanoseconds: delay)
+                    startSearch(code: code, maxPlayers: maxPlayers, retryCount: retryCount + 1)
+                } else {
+                    errorMessage = error.localizedDescription
+                    matchmaker.isSearching = false
+                }
             }
         }
     }
