@@ -164,6 +164,17 @@ struct GameKitLobbyView: View {
             .background(.quaternary, in: RoundedRectangle(cornerRadius: 16))
             .padding(.horizontal)
 
+            ShareLink(item: URL(string: "godeal://join?code=\(generatedCode)")!,
+                      subject: Text("Go! Deal!"),
+                      message: Text("Join my Go! Deal! game! Room code: \(generatedCode)")) {
+                Label("Share via AirDrop / Text", systemImage: "square.and.arrow.up")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.green)
+            .padding(.horizontal)
+
             Button { startSearch(code: generatedCode, maxPlayers: 5) } label: {
                 Label("Wait for Players", systemImage: "person.wave.2.fill")
                     .frame(maxWidth: .infinity)

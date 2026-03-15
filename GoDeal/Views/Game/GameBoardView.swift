@@ -205,8 +205,8 @@ struct GameBoardView: View {
                         .padding(.horizontal)
                         .padding(.vertical, h < 750 ? 3 : h < 900 ? 4 : 8)
 
-                    // Emoji reaction bar (multiplayer only)
-                    if viewModel.networkSession != nil {
+                    // Emoji reaction bar (multiplayer only, when it's not your turn)
+                    if viewModel.networkSession != nil, !viewModel.isHumanTurn {
                         HStack(spacing: 12) {
                             ForEach(GameViewModel.reactionEmojis, id: \.self) { emoji in
                                 Button {
