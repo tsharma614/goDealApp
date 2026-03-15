@@ -13,6 +13,7 @@ struct MainMenuView: View {
     @State private var gameViewModel = GameViewModel()
     @State private var customizationViewModel = CustomizationViewModel()
     @State private var inviteError: String? = nil
+    @AppStorage("onlinePlayerName") private var onlinePlayerName: String = ""
 
     // Brand palette
     private let orange     = Color(red: 0.96, green: 0.65, blue: 0.22)
@@ -86,6 +87,7 @@ struct MainMenuView: View {
             GameKitLobbyView { session, localIdx, cpuCount, difficulty in
                 var setup = GameSetup()
                 setup.cpuDifficulty = difficulty
+                setup.humanPlayerName = onlinePlayerName
                 if session.role == .host {
                     gameViewModel = GameViewModel(setup: setup, session: session, localPlayerIndex: localIdx, cpuCount: cpuCount)
                 } else {

@@ -287,12 +287,8 @@ struct LobbyView: View {
     }
 
     private func startHostGame(session: MultipeerSession) {
-        let guests = session.connectedPeers
-        for (offset, peer) in guests.enumerated() {
-            session.send(.playerAssignment(localPlayerIndex: offset + 1),
-                         toPeerIDs: [peer.displayName])
-        }
-        session.send(.gameStart)
+        // Host VM init is the single source of truth for player assignments.
+        // It sends playerAssignment + gameState + gameStart after shuffling.
         session.stopAdvertising()
         onStartGame(session, 0, cpuCount, cpuDifficulty)
     }

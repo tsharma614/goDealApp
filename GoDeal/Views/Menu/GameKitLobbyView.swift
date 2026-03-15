@@ -28,8 +28,14 @@ struct GameKitLobbyView: View {
     @State private var isShowingRecents = false
     @State private var cpuCount: Int = 0
     @State private var cpuDifficulty: AIDifficulty = .medium
+    @AppStorage("onlinePlayerName") private var customDisplayName: String = ""
 
     private enum EntryMode { case create, join }
+
+    private var localDisplayName: String {
+        let trimmed = customDisplayName.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? GKLocalPlayer.local.displayName : trimmed
+    }
 
     var body: some View {
         NavigationStack {
@@ -65,6 +71,17 @@ struct GameKitLobbyView: View {
 
     private var entryScreen: some View {
         VStack(spacing: 24) {
+            // Custom display name
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Display Name")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField(GKLocalPlayer.local.displayName, text: $customDisplayName)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+            }
+            .padding(.horizontal)
+
             Picker("Mode", selection: $entryMode) {
                 Text("Create Room").tag(EntryMode.create)
                 Text("Join Room").tag(EntryMode.join)
@@ -249,7 +266,7 @@ struct GameKitLobbyView: View {
 
             // Local player row
             playerRow(
-                name: "\(GKLocalPlayer.local.displayName) (you)",
+                name: "\(localDisplayName) (you)",
                 badge: activeRole == .host ? "host" : "guest",
                 color: activeRole == .host ? .blue : .green
             )
@@ -316,6 +333,12 @@ struct GameKitLobbyView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
+
+            ShareLink(item: "Join my Go! Deal! game!\nRoom code: \(activeCode)") {
+                Label("Share Room Code", systemImage: "square.and.arrow.up")
+                    .font(.callout)
+            }
+            .padding(.horizontal)
         }
     }
 
@@ -378,13 +401,10 @@ struct GameKitLobbyView: View {
     }
 
     private func startHostGame(session: GameKitSession) {
-        // Assign indices: sort all IDs so every device gets the same deterministic mapping
+        // Host VM init is the single source of truth for player assignments.
+        // It sends playerAssignment + gameState + gameStart after shuffling.
         let allIDs = ([GKLocalPlayer.local.gamePlayerID]
             + session.connectedPeerIDs).sorted()
-        for (idx, id) in allIDs.enumerated() where id != GKLocalPlayer.local.gamePlayerID {
-            session.send(.playerAssignment(localPlayerIndex: idx), toPeerIDs: [id])
-        }
-        session.send(.gameStart)
         let localIdx = allIDs.firstIndex(of: GKLocalPlayer.local.gamePlayerID) ?? 0
         onStartGame(session, localIdx, cpuCount, cpuDifficulty)
         dismiss()

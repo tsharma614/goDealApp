@@ -164,7 +164,7 @@ struct PropertySetView: View {
                     .background(.orange.opacity(0.3), in: Capsule())
             }
             if set.hasApartmentBuilding {
-                Text("TB")
+                Text("APT")
                     .font(.system(size: 8, weight: .bold))
                     .padding(.horizontal, 4)
                     .padding(.vertical, 2)

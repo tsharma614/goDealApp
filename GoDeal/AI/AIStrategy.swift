@@ -176,8 +176,10 @@ enum AIStrategy {
             return moneyDecision
         }
 
-        // 5.75. Drain richest opponent when they're flush (>= $5M)
-        if let richOpp = otherIndices
+        // 5.75. Drain richest opponent when they're flush (>= $5M); prefer humans
+        let humanOpps = otherIndices.filter { state.players[$0].isHuman }
+        let drainPool = humanOpps.isEmpty ? otherIndices : humanOpps
+        if let richOpp = drainPool
                 .filter({ state.players[$0].bankTotal >= 5 })
                 .max(by: { state.players[$0].bankTotal < state.players[$1].bankTotal }) {
             if let cn = hand.first(where: { if case .action(.collectNow) = $0.type { return true }; return false }) {
@@ -200,7 +202,7 @@ enum AIStrategy {
             }
         }
 
-        // 8. Corner Store / Tower Block on a complete set
+        // 8. Corner Store / Apartment Building on a complete set
         if let decision = tryImprovement(hand: hand, state: state, playerIndex: playerIndex) {
             return decision
         }
@@ -382,6 +384,10 @@ enum AIStrategy {
         let player = state.players[playerIndex]
         let otherIndices = state.otherPlayerIndices()
 
+        // Skip rent entirely if no opponent can pay anything
+        let viableTargets = otherIndices.filter { state.players[$0].totalAssets > 0 }
+        guard !viableTargets.isEmpty else { return nil }
+
         for card in hand {
             switch card.type {
             case .rent(let colors):
@@ -398,13 +404,15 @@ enum AIStrategy {
                 }
 
             case .wildRent:
-                // Pick highest rent color, pick richest target
+                // Pick highest rent color; prefer human targets, then richest
                 let bestColorAndRent = player.properties.values
                     .map { ($0.color, $0.currentRent) }
                     .max(by: { $0.1 < $1.1 })
 
                 if let (color, rent) = bestColorAndRent, rent >= threshold {
-                    let richestTarget = otherIndices.max(by: { state.players[$0].bankTotal < state.players[$1].bankTotal })
+                    let humanTargets = viableTargets.filter { state.players[$0].isHuman }
+                    let preferredPool = humanTargets.isEmpty ? viableTargets : humanTargets
+                    let richestTarget = preferredPool.max(by: { state.players[$0].bankTotal < state.players[$1].bankTotal })
                     return AIDecision(
                         card: card,
                         destination: .rent(color),
@@ -474,14 +482,22 @@ enum AIStrategy {
         state: GameState,
         playerIndex: Int
     ) -> AIDecision? {
+        // Only target opponents who can actually pay something
+        let otherIdx = state.otherPlayerIndices()
+        let viableTargets = otherIdx.filter { state.players[$0].totalAssets > 0 }
+
         for card in hand {
             if case .action(let type) = card.type {
                 switch type {
                 case .collectNow:
-                    let richestTarget = state.otherPlayerIndices()
-                        .max(by: { state.players[$0].bankTotal < state.players[$1].bankTotal })
+                    guard !viableTargets.isEmpty else { continue }
+                    // Prefer human targets, then richest
+                    let humanTargets = viableTargets.filter { state.players[$0].isHuman }
+                    let pool = humanTargets.isEmpty ? viableTargets : humanTargets
+                    let richestTarget = pool.max(by: { state.players[$0].bankTotal < state.players[$1].bankTotal })
                     return AIDecision(card: card, destination: .action, targetPlayerIndex: richestTarget)
                 case .bigSpender:
+                    guard !viableTargets.isEmpty else { continue }
                     return AIDecision(card: card, destination: .action)
                 default: break
                 }
@@ -512,6 +528,11 @@ enum AIStrategy {
         threshold: Int
     ) -> AIDecision? {
         let player = state.players[playerIndex]
+
+        // Skip rent entirely if no opponent can pay anything
+        let viableTargets = state.otherPlayerIndices().filter { state.players[$0].totalAssets > 0 }
+        guard !viableTargets.isEmpty else { return nil }
+
         for card in hand {
             switch card.type {
             case .rent(let colors):
@@ -529,7 +550,16 @@ enum AIStrategy {
                     .map { ($0.color, $0.currentRent) }
                     .max(by: { $0.1 < $1.1 })
                 if let (color, rent) = best, rent >= threshold {
-                    return AIDecision(card: card, destination: .rent(color), targetPlayerIndex: preferredTarget)
+                    // Use preferred target if they have assets; otherwise pick best viable target (prefer humans)
+                    let target: Int?
+                    if state.players[preferredTarget].totalAssets > 0 {
+                        target = preferredTarget
+                    } else {
+                        let humanTargets = viableTargets.filter { state.players[$0].isHuman }
+                        let preferredPool = humanTargets.isEmpty ? viableTargets : humanTargets
+                        target = preferredPool.max(by: { state.players[$0].bankTotal < state.players[$1].bankTotal })
+                    }
+                    return AIDecision(card: card, destination: .rent(color), targetPlayerIndex: target)
                 }
             default: break
             }
@@ -595,7 +625,7 @@ enum AIStrategy {
         return nil
     }
 
-    /// Play Corner Store or Tower Block on a complete set.
+    /// Play Corner Store or Apartment Building on a complete set.
     private static func tryImprovement(
         hand: [Card],
         state: GameState,

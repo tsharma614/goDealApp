@@ -21,7 +21,7 @@ struct GameBoardView: View {
     @State private var showActionBankDialog = false
     @State private var pendingActionCard: Card? = nil
 
-    @State private var pendingImprovementCard: Card? = nil  // corner store / tower block multi-set picker
+    @State private var pendingImprovementCard: Card? = nil  // corner store / apartment building multi-set picker
     @State private var drawFeedbackCount: Int? = nil         // "+N" badge shown briefly after drawing
     @State private var handCountBeforeDraw: Int = 0
     @State private var dealForwardPending: Bool = false
@@ -1204,6 +1204,7 @@ struct GameBoardView: View {
         if isTop(\.rentCollected) && s.rentCollected > 0  { result.append("Rent Machine 💰") }
         if isTop(\.peakBankValue) && s.peakBankValue > 0  { result.append("Cash Baron 💵") }
         if playerIndex == winnerIndex && viewModel.state.turnNumber <= 12 { result.append("Speed Racer ⚡") }
+        if playerIndex == winnerIndex && viewModel.cpuCountForGame >= 4 && viewModel.cpuDifficultyForGame == .hard { result.append("Champion 👑") }
         if playerIndex == winnerIndex && result.isEmpty    { result.append("Property Mogul 🏠") }
         if s.rentPaid >= 8                                { result.append("Human ATM 🏧") }
         if s.steals == 0 && n > 1                         { result.append("Too Nice 😇") }

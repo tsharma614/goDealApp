@@ -1786,4 +1786,80 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(player.totalAssets, 0, "New player with no bank/properties should have 0 total assets")
     }
 
+    // MARK: - AI Targeting — Skip Broke Targets
+
+    func testHardCPUSkipsBrokeTargetForRent() {
+        let engine = makeEngine(playerCount: 3)
+        engine.state.players[0].isHuman = false
+        engine.state.players[1].isHuman = true
+        engine.state.players[2].isHuman = true
+        engine.state.players[2].addToBank(makeCard(type: .money(3), value: 3))
+        engine.state.currentPlayerIndex = 0
+
+        let prop = makeCard(type: .property(.rustDistrict), value: 1)
+        engine.state.players[0].placeProperty(prop, in: .rustDistrict)
+        let rentCard = makeCard(type: .rent([.rustDistrict, .skylineAve]), value: 1)
+        engine.state.players[0].hand = [rentCard]
+        engine.state.players[0].addToBank(makeCard(type: .money(5), value: 5))
+
+        let decision = AIStrategy.decideNextPlay(
+            state: engine.state,
+            playerIndex: 0,
+            difficulty: .hard
+        )
+
+        if let d = decision, case .action = d.destination, let target = d.targetPlayerIndex {
+            XCTAssertEqual(target, 2, "Hard CPU should target player with assets, not broke player")
+        }
+    }
+
+    func testHardCPUSkipsBrokeTargetForCollectNow() {
+        let engine = makeEngine(playerCount: 3)
+        engine.state.players[0].isHuman = false
+        engine.state.players[1].isHuman = true
+        engine.state.players[2].isHuman = true
+        engine.state.players[2].addToBank(makeCard(type: .money(5), value: 5))
+        engine.state.currentPlayerIndex = 0
+        engine.state.players[0].addToBank(makeCard(type: .money(5), value: 5))
+
+        let collectNow = makeCard(type: .action(.collectNow), value: 5)
+        engine.state.players[0].hand = [collectNow]
+
+        let decision = AIStrategy.decideNextPlay(
+            state: engine.state,
+            playerIndex: 0,
+            difficulty: .hard
+        )
+
+        if let d = decision, case .action = d.destination, let target = d.targetPlayerIndex {
+            XCTAssertEqual(target, 2, "CollectNow should target player with assets")
+        }
+    }
+
+    func testHardCPUPrefersHumanTargetForWildRent() {
+        let engine = makeEngine(playerCount: 3)
+        engine.state.players[0].isHuman = false
+        engine.state.players[1].isHuman = false
+        engine.state.players[2].isHuman = true
+        engine.state.players[1].addToBank(makeCard(type: .money(3), value: 3))
+        engine.state.players[2].addToBank(makeCard(type: .money(3), value: 3))
+        engine.state.currentPlayerIndex = 0
+        engine.state.players[0].addToBank(makeCard(type: .money(5), value: 5))
+
+        let prop = makeCard(type: .property(.rustDistrict), value: 1)
+        engine.state.players[0].placeProperty(prop, in: .rustDistrict)
+        let wildRent = makeCard(type: .wildRent, value: 4)
+        engine.state.players[0].hand = [wildRent]
+
+        let decision = AIStrategy.decideNextPlay(
+            state: engine.state,
+            playerIndex: 0,
+            difficulty: .hard
+        )
+
+        if let d = decision, case .action = d.destination, let target = d.targetPlayerIndex {
+            XCTAssertEqual(target, 2, "Wild rent should prefer human target over CPU")
+        }
+    }
+
 }

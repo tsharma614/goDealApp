@@ -56,6 +56,10 @@ final class GameViewModel {
     /// Set when a remote player drops mid-game (GameKit only); view shows a dismissal alert.
     var playerDisconnectedAlert: Bool = false
 
+    /// Stored for end-game superlatives (champion badge)
+    var cpuCountForGame: Int = 0
+    var cpuDifficultyForGame: AIDifficulty = .medium
+
     /// Host-side: maps stable peer ID → player index in state.players
     private var peerPlayerIndexMap: [String: Int] = [:]
 
@@ -119,6 +123,8 @@ final class GameViewModel {
         let engine = GameEngine(state: state)
         self.engine = engine
         self.localPlayerIndex = players.firstIndex(where: { $0.isHuman }) ?? 0
+        self.cpuCountForGame = cpuCount
+        self.cpuDifficultyForGame = setup.cpuDifficulty
 
         // Setup CPU players
         for (idx, player) in state.players.enumerated() where !player.isHuman {
@@ -183,6 +189,9 @@ final class GameViewModel {
             }
         }
 
+        self.cpuCountForGame = actualCPUCount
+        self.cpuDifficultyForGame = setup.cpuDifficulty
+
         // Setup CPU players (host runs their turns)
         for (idx, player) in state.players.enumerated() where !player.isHuman {
             cpuPlayers.append(CPUPlayer(playerIndex: idx, difficulty: setup.cpuDifficulty, engine: engine))
@@ -196,7 +205,7 @@ final class GameViewModel {
         }
         wireSessionCallbacks()
 
-        // Broadcast corrected player assignments (lobby sent pre-shuffle indices) + initial state
+        // Broadcast player assignments + initial state + gameStart (single source of truth)
         Task { @MainActor [weak self] in
             guard let self else { return }
             for peer in guests {
@@ -205,6 +214,7 @@ final class GameViewModel {
                 }
             }
             self.networkSession?.send(.gameState(self.engine.state))
+            self.networkSession?.send(.gameStart)
         }
     }
 
@@ -278,6 +288,9 @@ final class GameViewModel {
             }
         }
         self.peerPlayerIndexMap = map
+
+        self.cpuCountForGame = actualCPUCount
+        self.cpuDifficultyForGame = setup.cpuDifficulty
 
         // Setup CPU players (host runs their turns)
         for (idx, player) in state.players.enumerated() where !player.isHuman {
@@ -679,6 +692,10 @@ final class GameViewModel {
             case .playerAction(let action):
                 guard self.isHost else { return }
                 let idx = self.peerIndex(for: peerID)
+                guard idx >= 0 else {
+                    GameLogger.shared.warn("Unknown peer \(peerID) — ignoring action")
+                    return
+                }
                 self.handleIncomingAction(action, from: idx)
             case .playAgainRequest:
                 guard !self.isHost else { return }
