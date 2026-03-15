@@ -861,6 +861,8 @@ final class GameViewModel {
                     log.event("Human has $0 assets — auto-accepting \(actionCard.name)")
                     engine.acceptAction()
                     broadcastState()
+                    // Phase may have advanced — re-process
+                    handlePhaseChange()
                     return
                 }
                 // Snapshot context before showing sheet so the body doesn't rely on live phase
@@ -914,6 +916,8 @@ final class GameViewModel {
                     log.event("Remote human \(state.players[targetIdx].name) has $0 assets — auto-accepting \(actionCard.name)")
                     engine.acceptAction()
                     broadcastState()
+                    // Phase may have advanced to next response or payment — re-process
+                    handlePhaseChange()
                 }
             }
             // Multiplayer non-local human target with assets: wait for that device to send response
@@ -926,7 +930,7 @@ final class GameViewModel {
                     log.event("Human has $0 assets — auto-resolving payment")
                     engine.resolveCPUPayment(debtorIndex: humanIdx, creditorIndex: creditorIdx, amount: amount)
                     broadcastState()
-                    triggerCPUIfNeeded()
+                    handlePhaseChange()
                 } else {
                     // Store context and delay sheet presentation to avoid overlap with ActionTargetSheet dismissal
                     let capturedAmount = amount
@@ -950,7 +954,8 @@ final class GameViewModel {
                 log.event("Auto-resolving payment for \(state.players[debtorIdx].name) (assets=\(state.players[debtorIdx].totalAssets))")
                 engine.resolveCPUPayment(debtorIndex: debtorIdx, creditorIndex: creditorIdx, amount: amount)
                 broadcastState()
-                triggerCPUIfNeeded()
+                // Phase may have advanced to another awaitingPayment — re-process
+                handlePhaseChange()
             }
             // Multiplayer non-local human with assets: wait for that player's device to send submitPayment
 

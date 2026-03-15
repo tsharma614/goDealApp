@@ -1949,4 +1949,92 @@ final class GameEngineTests: XCTestCase {
         XCTAssertTrue(GameViewModel.reactionEmojis.contains("🔥"))
     }
 
+    // MARK: - Big Spender Multi-Target Payment Queue
+
+    func testBigSpenderQueuesAllHumanPayments() {
+        let engine = makeEngine(playerCount: 3)
+        // Player 0 = attacker, players 1 & 2 = human targets with assets
+        engine.state.players[0].isHuman = true
+        engine.state.players[1].isHuman = true
+        engine.state.players[2].isHuman = true
+        engine.state.players[1].addToBank(makeCard(type: .money(3), value: 3))
+        engine.state.players[2].addToBank(makeCard(type: .money(3), value: 3))
+        engine.state.currentPlayerIndex = 0
+
+        let bigSpender = makeCard(type: .action(.bigSpender), value: 3)
+        engine.state.phase = .playing
+
+        // Resolve Big Spender — targets players 1 and 2
+        try! ActionResolver.resolve(card: bigSpender, playerIndex: 0,
+                                    targetPlayerIndex: nil, targetPropertyColor: nil,
+                                    state: &engine.state)
+
+        // Should be awaitingResponse for first target
+        if case .awaitingResponse(let targetIdx, _, _) = engine.state.phase {
+            XCTAssertEqual(targetIdx, 1, "First target should be player 1")
+        } else {
+            XCTFail("Should be in awaitingResponse phase")
+        }
+
+        // Accept for player 1
+        engine.acceptAction()
+        // Player 1's payment should be queued
+        XCTAssertEqual(engine.state.pendingPayments.count, 1, "Player 1 payment should be queued")
+
+        // Now should be awaitingResponse for player 2
+        if case .awaitingResponse(let targetIdx, _, _) = engine.state.phase {
+            XCTAssertEqual(targetIdx, 2, "Second target should be player 2")
+        } else {
+            XCTFail("Should be in awaitingResponse for player 2")
+        }
+
+        // Accept for player 2
+        engine.acceptAction()
+        // Both payments should lead to awaitingPayment phase
+        // processNextPayment should have dequeued the first one
+        if case .awaitingPayment(let debtorIdx, _, let amount, _) = engine.state.phase {
+            XCTAssertEqual(debtorIdx, 1, "First debtor should be player 1")
+            XCTAssertEqual(amount, 2, "Big Spender charges $2M")
+        } else {
+            XCTFail("Should be in awaitingPayment phase, got \(engine.state.phase)")
+        }
+    }
+
+    func testBigSpenderAdvancesAfterPaymentResolved() {
+        let engine = makeEngine(playerCount: 3)
+        engine.state.players[0].isHuman = true
+        engine.state.players[1].isHuman = true
+        engine.state.players[2].isHuman = true
+        engine.state.players[1].addToBank(makeCard(type: .money(3), value: 3))
+        engine.state.players[2].addToBank(makeCard(type: .money(3), value: 3))
+        engine.state.currentPlayerIndex = 0
+
+        let bigSpender = makeCard(type: .action(.bigSpender), value: 3)
+        engine.state.phase = .playing
+
+        try! ActionResolver.resolve(card: bigSpender, playerIndex: 0,
+                                    targetPlayerIndex: nil, targetPropertyColor: nil,
+                                    state: &engine.state)
+
+        // Accept both NoDeal windows
+        engine.acceptAction()  // player 1
+        engine.acceptAction()  // player 2
+
+        // Now in awaitingPayment for player 1
+        guard case .awaitingPayment(let d1, _, _, _) = engine.state.phase else {
+            XCTFail("Should be awaitingPayment"); return
+        }
+        XCTAssertEqual(d1, 1)
+
+        // Resolve player 1's payment
+        engine.resolveCPUPayment(debtorIndex: 1, creditorIndex: 0, amount: 2)
+
+        // Should now be awaitingPayment for player 2
+        if case .awaitingPayment(let d2, _, _, _) = engine.state.phase {
+            XCTAssertEqual(d2, 2, "After player 1 pays, should advance to player 2")
+        } else {
+            XCTFail("Should advance to awaitingPayment for player 2, got \(engine.state.phase)")
+        }
+    }
+
 }
