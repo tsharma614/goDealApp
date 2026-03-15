@@ -131,10 +131,10 @@ extension GameKitSession: GKMatchDelegate {
                 // Enter reconnecting state — wait 30s before treating as permanent
                 self.reconnectingPeerIDs.insert(peerID)
                 self.reconnectingPeerNames.insert(player.displayName)
-                self.log.warn("[GKSession] player \(player.displayName) disconnected — waiting 30s for reconnect")
+                self.log.warn("[GKSession] player \(player.displayName) disconnected — waiting 60s for reconnect")
 
                 self.reconnectTimers[peerID] = Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 30_000_000_000)
+                    try? await Task.sleep(nanoseconds: 60_000_000_000)
                     guard !Task.isCancelled else { return }
                     // Timeout — permanent disconnect
                     self.reconnectingPeerIDs.remove(peerID)
