@@ -66,14 +66,17 @@ struct GameKitLobbyView: View {
         .onAppear {
             isAuthenticated = GKLocalPlayer.local.isAuthenticated
             recentOpponents = RecentOpponentsStore.load()
-            // Deep link: auto-join with pre-filled code
             if let code = initialJoinCode, !code.isEmpty {
+                // Deep link: auto-join with pre-filled code
                 entryMode = .join
                 joinCode = code
                 Task {
                     try? await Task.sleep(nanoseconds: 300_000_000)
                     startSearch(code: code, maxPlayers: 5)
                 }
+            } else if entryMode == .create && isAuthenticated {
+                // Auto-start waiting when creating a room
+                startSearch(code: generatedCode, maxPlayers: 5)
             }
         }
     }
@@ -99,6 +102,12 @@ struct GameKitLobbyView: View {
             }
             .pickerStyle(.segmented)
             .padding(.horizontal)
+            .onChange(of: entryMode) { _, mode in
+                matchmaker.cancel()
+                if mode == .create {
+                    startSearch(code: generatedCode, maxPlayers: 5)
+                }
+            }
 
             if entryMode == .create { createView } else { joinView }
 
@@ -175,19 +184,24 @@ struct GameKitLobbyView: View {
             .tint(.green)
             .padding(.horizontal)
 
-            Button { startSearch(code: generatedCode, maxPlayers: 5) } label: {
-                Label("Wait for Players", systemImage: "person.wave.2.fill")
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 4)
+            if matchmaker.isSearching {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Waiting for players…")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(matchmaker.isSearching)
-            .padding(.horizontal)
 
-            Button("New Code") { generatedCode = String.randomRoomCode() }
+            Button("New Code") {
+                matchmaker.cancel()
+                generatedCode = String.randomRoomCode()
+                startSearch(code: generatedCode, maxPlayers: 5)
+            }
                 .font(.callout)
                 .foregroundStyle(.secondary)
-                .disabled(matchmaker.isSearching)
+                .disabled(false)
         }
     }
 
