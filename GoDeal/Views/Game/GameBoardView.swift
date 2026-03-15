@@ -204,6 +204,23 @@ struct GameBoardView: View {
                     controlsBar
                         .padding(.horizontal)
                         .padding(.vertical, h < 750 ? 3 : h < 900 ? 4 : 8)
+
+                    // Emoji reaction bar (multiplayer only)
+                    if viewModel.networkSession != nil {
+                        HStack(spacing: 12) {
+                            ForEach(GameViewModel.reactionEmojis, id: \.self) { emoji in
+                                Button {
+                                    viewModel.sendReaction(emoji)
+                                } label: {
+                                    Text(emoji).font(.title3)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 12)
+                        .background(.ultraThinMaterial, in: Capsule())
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .colorScheme(.dark)
@@ -213,6 +230,49 @@ struct GameBoardView: View {
                     turnBanner(name: name)
                         .transition(.opacity.combined(with: .scale(scale: 0.8)))
                         .zIndex(10)
+                }
+
+                // Emoji reaction overlay
+                if let reaction = viewModel.activeReaction {
+                    VStack(spacing: 4) {
+                        Text(reaction.emoji)
+                            .font(.system(size: 64))
+                        Text(reaction.playerName)
+                            .font(.caption.bold())
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(.black.opacity(0.5), in: Capsule())
+                    }
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.5).combined(with: .opacity),
+                        removal: .opacity.combined(with: .move(edge: .top))
+                    ))
+                    .allowsHitTesting(false)
+                    .zIndex(15)
+                }
+
+                // Reconnecting overlay
+                if !viewModel.reconnectingPlayerNames.isEmpty {
+                    ZStack {
+                        Color.black.opacity(0.5).ignoresSafeArea()
+                        VStack(spacing: 16) {
+                            ProgressView()
+                                .scaleEffect(1.5)
+                                .tint(.white)
+                            Text("Reconnecting…")
+                                .font(.title3.bold())
+                                .foregroundStyle(.white)
+                            ForEach(viewModel.reconnectingPlayerNames, id: \.self) { name in
+                                Text("Waiting for \(name)")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.white.opacity(0.7))
+                            }
+                        }
+                        .padding(32)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+                    }
+                    .zIndex(20)
                 }
 
                 // Game Over overlay
@@ -1091,9 +1151,15 @@ struct GameBoardView: View {
                         if viewModel.networkSession != nil {
                             if viewModel.isHost {
                                 if viewModel.isWaitingForPlayAgain {
-                                    Text("Waiting for others…")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.white.opacity(0.7))
+                                    let confirmed = viewModel.playAgainConfirmedPeers.count
+                                    let total = viewModel.networkSession?.connectedPeerIDs.count ?? 1
+                                    VStack(spacing: 4) {
+                                        ProgressView()
+                                            .tint(.white)
+                                        Text("Waiting for players (\(confirmed)/\(total))…")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.white.opacity(0.7))
+                                    }
                                     Button("Cancel") { viewModel.cancelWaitingForPlayAgain() }
                                         .foregroundStyle(.white.opacity(0.5))
                                 } else {
@@ -1109,9 +1175,19 @@ struct GameBoardView: View {
                                     }
                                 }
                             } else {
-                                Text("Waiting for host…")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.white.opacity(0.7))
+                                if viewModel.hasConfirmedPlayAgain {
+                                    VStack(spacing: 4) {
+                                        ProgressView()
+                                            .tint(.white)
+                                        Text("Waiting for everyone to ready up…")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.white.opacity(0.7))
+                                    }
+                                } else {
+                                    Text("Waiting for host…")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.white.opacity(0.7))
+                                }
                             }
                         } else {
                             Button {

@@ -6,6 +6,7 @@ import GameKit
 /// Internet multiplayer lobby.
 /// Flow: Create/Join code entry → waiting lobby → host taps Start → game begins.
 struct GameKitLobbyView: View {
+    var initialJoinCode: String? = nil
     var onStartGame: (GameKitSession, Int, Int, AIDifficulty) -> Void   // session, localIdx, cpuCount, difficulty
 
     @Environment(\.dismiss) private var dismiss
@@ -28,6 +29,7 @@ struct GameKitLobbyView: View {
     @State private var isShowingRecents = false
     @State private var cpuCount: Int = 0
     @State private var cpuDifficulty: AIDifficulty = .medium
+    @State private var invitedPlayerNames: [String] = []
     @AppStorage("onlinePlayerName") private var customDisplayName: String = ""
 
     private enum EntryMode { case create, join }
@@ -64,6 +66,15 @@ struct GameKitLobbyView: View {
         .onAppear {
             isAuthenticated = GKLocalPlayer.local.isAuthenticated
             recentOpponents = RecentOpponentsStore.load()
+            // Deep link: auto-join with pre-filled code
+            if let code = initialJoinCode, !code.isEmpty {
+                entryMode = .join
+                joinCode = code
+                Task {
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    startSearch(code: code, maxPlayers: 5)
+                }
+            }
         }
     }
 
@@ -275,6 +286,24 @@ struct GameKitLobbyView: View {
             ForEach(Array(session.connectedPeerNames.enumerated()), id: \.offset) { _, name in
                 playerRow(name: name, badge: nil, color: .green)
             }
+
+            // Pending invitees (invited but not yet connected)
+            let connectedNames = Set(session.connectedPeerNames)
+            let pendingNames = invitedPlayerNames.filter { !connectedNames.contains($0) }
+            ForEach(pendingNames, id: \.self) { name in
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                        .frame(width: 8, height: 8)
+                    Text(name)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("joining…")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .padding()
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 14))
@@ -334,7 +363,9 @@ struct GameKitLobbyView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
 
-            ShareLink(item: "Join my Go! Deal! game!\nRoom code: \(activeCode)") {
+            ShareLink(item: URL(string: "godeal://join?code=\(activeCode)")!,
+                      subject: Text("Go! Deal!"),
+                      message: Text("Join my Go! Deal! game! Room code: \(activeCode)")) {
                 Label("Share Room Code", systemImage: "square.and.arrow.up")
                     .font(.callout)
             }
@@ -468,6 +499,7 @@ struct GameKitLobbyView: View {
     private func rematch(opponent: RecentOpponent) {
         guard !matchmaker.isSearching else { return }
         errorMessage = nil
+        invitedPlayerNames = [opponent.displayName]
         Task {
             do {
                 let (match, role) = try await matchmaker.invitePlayers(

@@ -66,6 +66,7 @@
 		AA200000000000000000056 /* SoundManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000056 /* SoundManager.swift */; };
 		AA200000000000000000057 /* RecentOpponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000057 /* RecentOpponents.swift */; };
 		AA200000000000000000058 /* InviteManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000058 /* InviteManager.swift */; };
+		AA200000000000000000059 /* DeepLinkRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100000000000000000059 /* DeepLinkRouter.swift */; };
 		BFC12DAC2F55FBF800CB1D1D /* GO!.png in Resources */ = {isa = PBXBuildFile; fileRef = BFC12DAB2F55FBF800CB1D1D /* GO!.png */; };
 /* End PBXBuildFile section */
 
@@ -141,6 +142,7 @@
 		AA100000000000000000056 /* SoundManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundManager.swift; sourceTree = "<group>"; };
 		AA100000000000000000057 /* RecentOpponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentOpponents.swift; sourceTree = "<group>"; };
 		AA100000000000000000058 /* InviteManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InviteManager.swift; sourceTree = "<group>"; };
+		AA100000000000000000059 /* DeepLinkRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLinkRouter.swift; sourceTree = "<group>"; };
 		AA1000000000000000000F0 /* GoDeal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GoDeal.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA1000000000000000000F1 /* GoDealTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GoDealTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		BFC12DAB2F55FBF800CB1D1D /* GO!.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "GO!.png"; sourceTree = "<group>"; };
@@ -198,6 +200,7 @@
 			children = (
 				AA100000000000000000001 /* GoDealApp.swift */,
 				AA100000000000000000002 /* ContentView.swift */,
+				AA100000000000000000059 /* DeepLinkRouter.swift */,
 				AA100000000000000000044 /* Info.plist */,
 				AA10000000000000000004B /* GoDeal.entitlements */,
 			);
@@ -496,6 +499,7 @@
 				AA200000000000000000046 /* GameKitSession.swift in Sources */,
 				AA200000000000000000047 /* GameKitMatchmaker.swift in Sources */,
 				AA200000000000000000058 /* InviteManager.swift in Sources */,
+				AA200000000000000000059 /* DeepLinkRouter.swift in Sources */,
 				AA200000000000000000048 /* GameKitLobbyView.swift in Sources */,
 				AA20000000000000000004C /* TutorialView.swift in Sources */,
 			);

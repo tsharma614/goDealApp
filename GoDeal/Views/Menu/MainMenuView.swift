@@ -13,6 +13,7 @@ struct MainMenuView: View {
     @State private var gameViewModel = GameViewModel()
     @State private var customizationViewModel = CustomizationViewModel()
     @State private var inviteError: String? = nil
+    @State private var pendingDeepLinkCode: String? = nil
     @AppStorage("onlinePlayerName") private var onlinePlayerName: String = ""
 
     // Brand palette
@@ -83,8 +84,8 @@ struct MainMenuView: View {
         .sheet(isPresented: $isShowingTutorial) {
             TutorialView()
         }
-        .sheet(isPresented: $isShowingOnlineLobby) {
-            GameKitLobbyView { session, localIdx, cpuCount, difficulty in
+        .sheet(isPresented: $isShowingOnlineLobby, onDismiss: { pendingDeepLinkCode = nil }) {
+            GameKitLobbyView(initialJoinCode: pendingDeepLinkCode) { session, localIdx, cpuCount, difficulty in
                 var setup = GameSetup()
                 setup.cpuDifficulty = difficulty
                 setup.humanPlayerName = onlinePlayerName
@@ -100,6 +101,12 @@ struct MainMenuView: View {
         .onChange(of: InviteManager.shared.pendingInvite != nil) { _, hasPending in
             guard hasPending, !isShowingGame else { return }
             acceptPendingInvite()
+        }
+        .onChange(of: DeepLinkRouter.shared.pendingJoinCode) { _, code in
+            guard let code, !isShowingGame else { return }
+            DeepLinkRouter.shared.pendingJoinCode = nil
+            pendingDeepLinkCode = code
+            isShowingOnlineLobby = true
         }
         .alert("Invite Error", isPresented: Binding(
             get: { inviteError != nil },

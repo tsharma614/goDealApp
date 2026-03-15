@@ -60,6 +60,20 @@ final class GameViewModel {
     var cpuCountForGame: Int = 0
     var cpuDifficultyForGame: AIDifficulty = .medium
 
+    /// Emoji reaction currently displayed (auto-clears after animation)
+    var activeReaction: (emoji: String, playerName: String)? = nil
+    private var lastReactionTime: Date = .distantPast
+
+    /// Names of players currently reconnecting (overlay)
+    var reconnectingPlayerNames: [String] = []
+
+    /// Host: set of peer IDs that confirmed play again
+    var playAgainConfirmedPeers: Set<String> = []
+    /// Guest: has confirmed play again (waiting for others)
+    var hasConfirmedPlayAgain = false
+
+    static let reactionEmojis = ["👍", "😢", "🔥", "😂", "🎉"]
+
     /// Host-side: maps stable peer ID → player index in state.players
     private var peerPlayerIndexMap: [String: Int] = [:]
 
@@ -705,7 +719,21 @@ final class GameViewModel {
                 self.localPlayerIndex = idx
             case .playAgainConfirm:
                 guard self.isHost else { return }
-                self.newMultiplayerGame()
+                self.playAgainConfirmedPeers.insert(peerID)
+                // Start new game only when ALL connected guests have confirmed
+                let expected = self.networkSession?.connectedPeerIDs.count ?? 1
+                if self.playAgainConfirmedPeers.count >= expected {
+                    self.newMultiplayerGame()
+                }
+            case .emojiReaction(let emoji, let fromIndex):
+                if self.isHost {
+                    // Re-broadcast to all other peers
+                    self.networkSession?.send(message)
+                }
+                // Don't show our own reaction twice
+                if fromIndex != self.localPlayerIndex {
+                    self.showReaction(emoji: emoji, fromIndex: fromIndex)
+                }
             default:
                 break
             }
@@ -713,6 +741,18 @@ final class GameViewModel {
 
         networkSession?.onDisconnect = { [weak self] in
             self?.playerDisconnectedAlert = true
+        }
+
+        // Wire reconnect UI for GameKit sessions
+        if let gkSession = networkSession as? GameKitSession {
+            // Observe reconnecting peers by polling the session (simplest approach)
+            // The onChange in the view observes reconnectingPlayerNames on the VM
+            Task { @MainActor [weak self, weak gkSession] in
+                while let self, let gk = gkSession {
+                    self.reconnectingPlayerNames = Array(gk.reconnectingPeerNames)
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                }
+            }
         }
     }
 
@@ -1130,11 +1170,36 @@ final class GameViewModel {
         }
     }
 
+    // MARK: - Emoji Reactions
+
+    func sendReaction(_ emoji: String) {
+        guard let session = networkSession else { return }
+        guard Date().timeIntervalSince(lastReactionTime) > 1.5 else { return }
+        lastReactionTime = Date()
+        let msg = NetworkMessage.emojiReaction(emoji: emoji, fromPlayerIndex: localPlayerIndex)
+        if isHost {
+            session.send(msg)
+        } else {
+            session.send(msg)
+        }
+        showReaction(emoji: emoji, fromIndex: localPlayerIndex)
+    }
+
+    private func showReaction(emoji: String, fromIndex: Int) {
+        let name = state.players[safe: fromIndex]?.name ?? "Player"
+        activeReaction = (emoji: emoji, playerName: name)
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            activeReaction = nil
+        }
+    }
+
     // MARK: - Multiplayer Play Again
 
     /// Host: broadcast a play-again request to all guests.
     func requestPlayAgain() {
         guard let session = networkSession else { return }
+        playAgainConfirmedPeers = []
         isWaitingForPlayAgain = true
         session.send(.playAgainRequest)
     }
@@ -1143,6 +1208,7 @@ final class GameViewModel {
     func confirmPlayAgain() {
         guard let session = networkSession else { return }
         showPlayAgainConfirmation = false
+        hasConfirmedPlayAgain = true
         session.send(.playAgainConfirm)
     }
 
@@ -1195,6 +1261,8 @@ final class GameViewModel {
         self.engine = newEngine
         self.isWaitingForPlayAgain = false
         self.showPlayAgainConfirmation = false
+        self.playAgainConfirmedPeers = []
+        self.hasConfirmedPlayAgain = false
         self.isShowingNoDealSheet = false
         self.isShowingPaymentSheet = false
         self.isShowingDiscardSheet = false

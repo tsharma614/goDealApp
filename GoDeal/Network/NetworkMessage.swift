@@ -16,6 +16,8 @@ enum NetworkMessage: Codable {
     case playAgainRequest
     /// Guest → host: "yes, start the new game"
     case playAgainConfirm
+    /// Any player → all: emoji reaction
+    case emojiReaction(emoji: String, fromPlayerIndex: Int)
 }
 
 // MARK: - Player Action

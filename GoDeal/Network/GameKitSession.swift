@@ -20,7 +20,14 @@ final class GameKitSession: NSObject, NetworkSession {
     var onReceive: ((NetworkMessage, String) -> Void)?
     var onDisconnect: (() -> Void)?
 
+    /// Peer IDs currently in reconnecting state (disconnected but waiting)
+    var reconnectingPeerIDs: Set<String> = []
+    /// Display names of peers currently reconnecting
+    var reconnectingPeerNames: Set<String> = []
+
     // MARK: - Private
+
+    private var reconnectTimers: [String: Task<Void, Never>] = [:]
 
     private let match: GKMatch
     private let encoder = JSONEncoder()
@@ -80,6 +87,7 @@ final class GameKitSession: NSObject, NetworkSession {
         case .gameStart:         return "gameStart"
         case .playAgainRequest:  return "playAgainRequest"
         case .playAgainConfirm:  return "playAgainConfirm"
+        case .emojiReaction:     return "emojiReaction"
         }
     }
 }
@@ -102,17 +110,41 @@ extension GameKitSession: GKMatchDelegate {
 
     nonisolated func match(_ match: GKMatch, player: GKPlayer, didChange state: GKPlayerConnectionState) {
         Task { @MainActor in
+            let peerID = player.gamePlayerID
             if state == .connected {
-                if !self.connectedPeerIDs.contains(player.gamePlayerID) {
-                    self.connectedPeerIDs.append(player.gamePlayerID)
+                // Cancel any pending reconnect timeout
+                self.reconnectTimers[peerID]?.cancel()
+                self.reconnectTimers.removeValue(forKey: peerID)
+                let wasReconnecting = self.reconnectingPeerIDs.remove(peerID) != nil
+                self.reconnectingPeerNames.remove(player.displayName)
+
+                if !self.connectedPeerIDs.contains(peerID) {
+                    self.connectedPeerIDs.append(peerID)
                     self.connectedPeerNames.append(player.displayName)
+                }
+                if wasReconnecting {
+                    self.log.event("[GKSession] player \(player.displayName) reconnected")
+                } else {
                     self.log.event("[GKSession] player \(player.displayName) connected (total peers: \(self.connectedPeerIDs.count))")
                 }
             } else if state == .disconnected {
-                self.connectedPeerIDs.removeAll { $0 == player.gamePlayerID }
-                self.connectedPeerNames.removeAll { $0 == player.displayName }
-                self.log.warn("[GKSession] player \(player.displayName) disconnected")
-                self.onDisconnect?()
+                // Enter reconnecting state — wait 30s before treating as permanent
+                self.reconnectingPeerIDs.insert(peerID)
+                self.reconnectingPeerNames.insert(player.displayName)
+                self.log.warn("[GKSession] player \(player.displayName) disconnected — waiting 30s for reconnect")
+
+                self.reconnectTimers[peerID] = Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 30_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    // Timeout — permanent disconnect
+                    self.reconnectingPeerIDs.remove(peerID)
+                    self.reconnectingPeerNames.remove(player.displayName)
+                    self.connectedPeerIDs.removeAll { $0 == peerID }
+                    self.connectedPeerNames.removeAll { $0 == player.displayName }
+                    self.reconnectTimers.removeValue(forKey: peerID)
+                    self.log.warn("[GKSession] player \(player.displayName) reconnect timed out")
+                    self.onDisconnect?()
+                }
             }
         }
     }

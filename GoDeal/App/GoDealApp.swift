@@ -8,6 +8,15 @@ struct GoDealApp: App {
         WindowGroup {
             MainMenuView()
                 .onAppear { authenticateGameCenter() }
+                .onOpenURL { url in
+                    // godeal://join?code=XKCD42
+                    guard url.scheme == "godeal",
+                          url.host == "join",
+                          let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                          let code = components.queryItems?.first(where: { $0.name == "code" })?.value,
+                          !code.isEmpty else { return }
+                    DeepLinkRouter.shared.pendingJoinCode = code.uppercased()
+                }
         }
     }
 
